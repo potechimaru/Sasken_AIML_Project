@@ -1,0 +1,6 @@
+# Large model files
+/model/
+
+# Video files
+/mp4/
+*.mp4
