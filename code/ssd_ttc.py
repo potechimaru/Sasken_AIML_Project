@@ -18,6 +18,7 @@ import time
 import cv2
 
 from fcw import config, roi, visualizer
+from fcw.alert import AlertDecision
 from fcw.detector import CarDetector
 from fcw.tracker import IouTracker
 from fcw.ttc import TtcEstimator
@@ -68,7 +69,10 @@ def main():
         fps,
         config.HISTORY_SIZE,
         config.MIN_HISTORY_SIZE,
-        config.TTC_THRESHOLD,
+    )
+    alert_decision = AlertDecision(
+        on_threshold=config.ON_TTC_THRESHOLD,
+        off_threshold=config.OFF_TTC_THRESHOLD,
     )
 
     frame_index = 0
@@ -109,8 +113,9 @@ def main():
         expired_track_ids = tracker.update(forward_cars)
         for track_id in expired_track_ids:
             ttc_estimator.drop(track_id)
+            alert_decision.drop(track_id)
 
-        # 手順4 (Experiment 1): 高さ履歴からdh/dtとTTCを求め、アラートを判定する
+        # 手順4 (Experiment 1/4): TTCを計算し、ヒステリシス付きで警報を判定する
         for car in forward_cars:
             # 計算結果(dh_dt / ttc / alert / history_length)をcarへマージし、
             # 後続の描画処理が1つの辞書だけを見れば済むようにする
@@ -120,6 +125,10 @@ def main():
                     frame_index,
                     car["height_px"],
                 )
+            )
+            car["alert"] = alert_decision.update(
+                car["ttc"],
+                car["track_id"],
             )
 
             # 履歴不足や非接近(dh/dt <= 0)の場合はTTCがNoneになるので、
