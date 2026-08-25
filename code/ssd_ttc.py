@@ -1,4 +1,3 @@
-# 分割前のコード
 """実験1〜3のベースコード(パイプライン統合のエントリポイント)。
 
 各段の中身はfcwパッケージのコンポーネントに分かれている。
@@ -13,11 +12,13 @@
 (detector -> ROI -> tracking -> TTC -> alert -> 描画)の接続だけを担当する。
 """
 
+import atexit
 import time
 
 import cv2
 
 from fcw import config, roi, visualizer
+from fcw.alarm import AlarmController
 from fcw.alert import AlertDecision
 from fcw.detector import CarDetector
 from fcw.tracker import IouTracker
@@ -74,6 +75,9 @@ def main():
         on_threshold=config.ON_TTC_THRESHOLD,
         off_threshold=config.OFF_TTC_THRESHOLD,
     )
+    alarm = AlarmController()
+    # 例外終了時にもmacOSの警報音プロセスを残さない。
+    atexit.register(alarm.close)
 
     frame_index = 0
     infer_ms_list = []
@@ -142,6 +146,11 @@ def main():
                     f"alert={car['alert']}"
                 )
 
+        # 1台でも警報中なら音を鳴らす。車両ごとのループ内で停止判定しない。
+        alarm.set_active(
+            any(car["alert"] for car in forward_cars)
+        )
+
         # 手順5: 元のフレームを壊さないようコピーしてから描画する
         vis = frame.copy()
         visualizer.draw_roi(vis, roi_polygon)
@@ -155,6 +164,7 @@ def main():
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
+    alarm.close()
     writer.release()
 
     # --- 後片付け: 推論速度の集計(リアルタイム処理が可能かの確認用) ---
