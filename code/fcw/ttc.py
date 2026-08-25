@@ -41,7 +41,7 @@ def calculate_ttc(height_history, fps, min_history_size):
         return None, None
 
     if fps <= 0:
-             return None, None
+             return None, None, None
 
     frame_numbers = np.array(
         [frame for frame, height in height_history],
@@ -65,16 +65,31 @@ def calculate_ttc(height_history, fps, min_history_size):
         1
     )
 
+    predicted_heights = slope * times + intercept
+
+    #残差平方和 Residual Sum of Squares
+    ss_res = np.sum((heights - predicted_heights) **2)
+
+    #全平方和 Total Sum of Squares
+    ss_tot = np.sum((heights - np.mean(heights)) ** 2)
+
+    #決定係数 R^2
+    if (ss_tot == 0):
+        r_squared = 1.0
+    else:
+         r_squared = 1 - (ss_res / ss_tot)
+
+
     dh_dt = float(slope) 
 
     if dh_dt <= 0:
-            return dh_dt, None
+            return dh_dt, None, r_squared
 
     current_height = heights[-1]
 
     ttc = current_height / dh_dt 
 
-    return dh_dt, ttc  
+    return dh_dt, ttc, r_squared  
     
     
 
@@ -115,7 +130,7 @@ class TtcEstimator:
         history.append((frame_index, height_px))
 
 
-        dh_dt, ttc = calculate_ttc(
+        dh_dt, ttc, r_squared = calculate_ttc(
             history,
             self.fps,
             self.min_history_size,
@@ -127,6 +142,7 @@ class TtcEstimator:
             "ttc": ttc,
             "alert": ttc is not None and ttc < self.ttc_threshold,
             "history_length": len(history),
+            "r_squared": r_squared,
         }
 
     def drop(self, track_id):
