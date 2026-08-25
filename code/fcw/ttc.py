@@ -13,10 +13,20 @@
         5. First Condition - Vehicle Must Be Approaching
         9. Complete First-Stage Decision Logic
 
-Experiment 4 (TTC refinement) で追加予定の線形回帰による傾き推定、
-連続N回の閾値超え判定、ヒステリシス(ON: 2.0秒 / OFF: 2.5秒)は、
-このコンポーネント内で完結するように分離してある。
+        実装済み
+        ・dequeによるN-frame Height History
+        ・Linear Regressionによるdh/dt
+        ・TTC計算
+        ・単一ThresholdによるAlert
+
+        未実装
+        ・連続N回判定
+        ・Hysteresis
+        ・その他のExperiment 4 refinement
 """
+
+from collections import deque
+import numpy as np
 
 
 def calculate_ttc(height_history, fps, min_history_size):
@@ -30,27 +40,43 @@ def calculate_ttc(height_history, fps, min_history_size):
     if len(height_history) < min_history_size:
         return None, None
 
-    # 履歴の最古と最新の2点を結んだ傾きを、高さの変化率とみなす
-    old_frame, old_height = height_history[0]
-    current_frame, current_height = height_history[-1]
+    if fps <= 0:
+             return None, None
 
-    # 経過フレームやfpsが不正だと時間に変換できない(ゼロ除算防止)
-    delta_frames = current_frame - old_frame
-    if delta_frames <= 0 or fps <= 0:
-        return None, None
+    frame_numbers = np.array(
+        [frame for frame, height in height_history],
+        dtype = np.float64
+    )
 
-    # フレーム差を秒に換算してから、dh/dt [px/s] を求める
-    delta_time = delta_frames / fps
-    dh_dt = (current_height - old_height) / delta_time
+    
 
-    # 高さが増えていない車両は、接近していないものとしてTTCを出さない。
-    # (資料上はTTC = 無限大に相当する。dh_dtは記録用に返す)
+    times = (
+        frame_numbers - frame_numbers[0]
+    ) / fps
+
+    heights = np.array(
+        [height for frame, height in height_history],
+        dtype = np.float64
+    )
+
+    slope, intercept = np.polyfit(
+        times,
+        heights,
+        1
+    )
+
+    dh_dt = float(slope) 
+
     if dh_dt <= 0:
-        return dh_dt, None
+            return dh_dt, None
 
-    # TTCbasic = h / (dh/dt)。高さは距離にほぼ反比例するという近似に基づく
-    ttc = current_height / dh_dt
-    return dh_dt, ttc
+    current_height = heights[-1]
+
+    ttc = current_height / dh_dt 
+
+    return dh_dt, ttc  
+    
+    
 
 
 class TtcEstimator:
@@ -82,13 +108,12 @@ class TtcEstimator:
             history_length : 現在の履歴フレーム数
         """
         # 初めて見るIDなら空の履歴を作り、そこへ今回の高さを追加する
-        history = self.height_histories.setdefault(track_id, [])
+        history = self.height_histories.setdefault(
+            track_id,
+            deque(maxlen=self.history_size),
+        )
         history.append((frame_index, height_px))
 
-        # 古いフレームから捨てて、直近history_size件だけを残す
-        # (毎フレーム、窓を1つずらしながらTTCを計算し直すことになる)
-        if len(history) > self.history_size:
-            del history[:-self.history_size]
 
         dh_dt, ttc = calculate_ttc(
             history,
