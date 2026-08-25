@@ -16,14 +16,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # SSDモデルと入出力のパス
-MODEL = str(
-    PROJECT_ROOT
-    / "model"
-    / "ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8"
-    / "saved_model"
-)
-VIDEO = str(PROJECT_ROOT / "mp4" / "sample02.mp4")
-OUTPUT_DIR = PROJECT_ROOT / "output"
+MODEL = "/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/saved_model"
+VIDEO = "/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/動画/06_fcw_drive_rec_dump.h264"
+OUTPUT_DIR = Path('/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/result_mov')
 
 # 検出(Object detector)のパラメータ
 CAR_CLASS_ID = 3
@@ -37,7 +32,7 @@ MAX_MISSED_FRAMES = 5
 # HISTORY_SIZEは保持するフレーム数、MIN_HISTORY_SIZEはTTC計算に必要な最小フレーム数
 HISTORY_SIZE = 10
 MIN_HISTORY_SIZE = 5
-TTC_THRESHOLD = 2.0
+TTC_THRESHOLD = 4.0
 
 # Experiment 2 - Forward ROI の台形の頂点(画像サイズに対する比率)
 # (左上, 右上, 右下, 左下) の順で、道路の遠近に合わせて上辺を狭くしている
