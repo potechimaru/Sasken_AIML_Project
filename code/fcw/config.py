@@ -37,7 +37,10 @@ MAX_MISSED_FRAMES = 150
 # HISTORY_SIZEは保持するフレーム数、MIN_HISTORY_SIZEはTTC計算に必要な最小フレーム数
 HISTORY_SIZE = 10
 MIN_HISTORY_SIZE = 5
-TTC_THRESHOLD = 2.0
+
+# Experiment 4 - Alert hysteresis のパラメータ
+ON_TTC_THRESHOLD = 4.0
+OFF_TTC_THRESHOLD = 6.5
 
 # Experiment 2 - Forward ROI の台形の頂点(画像サイズに対する比率)
 # (左上, 右上, 右下, 左下) の順で、道路の遠近に合わせて上辺を狭くしている
