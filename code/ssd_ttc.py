@@ -21,6 +21,7 @@ from fcw import config, roi, visualizer
 from fcw.detector import CarDetector
 from fcw.tracker import IouTracker
 from fcw.ttc import TtcEstimator
+from fcw.alert import AlertDecision
 
 
 def main():
@@ -68,7 +69,11 @@ def main():
         fps,
         config.HISTORY_SIZE,
         config.MIN_HISTORY_SIZE,
-        config.TTC_THRESHOLD,
+        #config.TTC_THRESHOLD,
+    )
+    alert_decision = AlertDecision(
+    on_threshold=config.ON_TTC_THRESHOLD,
+    off_threshold=config.OFF_TTC_THRESHOLD,
     )
 
     frame_index = 0
@@ -121,7 +126,10 @@ def main():
                     car["height_px"],
                 )
             )
-
+            ttc = car['ttc']
+            car["alert"] = alert_decision.update(ttc, car["track_id"], alert_decision.on_threshold, alert_decision.off_threshold)
+            a=car["alert"]
+        
             # 履歴不足や非接近(dh/dt <= 0)の場合はTTCがNoneになるので、
             # 数値が出たものだけをログに残す
             if car["ttc"] is not None:

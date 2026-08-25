@@ -61,14 +61,14 @@ class TtcEstimator:
         fps,
         history_size,
         min_history_size,
-        ttc_threshold,
+        #ttc_threshold,   alert.pyに移す
     ):
         self.fps = fps
         # 保持する履歴の最大フレーム数(N)。大きいほど滑らかだが反応は遅くなる
         self.history_size = history_size
         # TTCの計算を始めるのに必要な最小フレーム数
         self.min_history_size = min_history_size
-        self.ttc_threshold = ttc_threshold
+        #self.ttc_threshold = ttc_threshold
         # track_id -> [(frame_index, height_px), ...] の高さ履歴
         self.height_histories = {}
 
@@ -100,7 +100,7 @@ class TtcEstimator:
         return {
             "dh_dt": dh_dt,
             "ttc": ttc,
-            "alert": ttc is not None and ttc < self.ttc_threshold,
+            #"alert": ttc is not None and ttc < self.ttc_threshold, alert.pyに移す
             "history_length": len(history),
         }
 
