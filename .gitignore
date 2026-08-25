@@ -1,6 +1,13 @@
 # Large model files
 /model/
+/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/
 
 # Video files
 /mp4/
 *.mp4
+*.h264
+*.264
+
+# Python
+__pycache__/
+*.pyc
