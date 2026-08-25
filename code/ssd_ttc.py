@@ -9,12 +9,12 @@ from pathlib import Path
 # SSDモデルと動画のパスを指定
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODEL = str(PROJECT_ROOT / "model" / "ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8" / "saved_model")
-VIDEO = str(PROJECT_ROOT / "mp4" / "sample02.mp4")
+VIDEO = str(PROJECT_ROOT / "mp4" / "sample06.mp4")
 
 CAR_CLASS_ID = 3
 SCORE_THRESHOLD = 0.4
 
-MAX_MISSED_FRAMES = 5
+MAX_MISSED_FRAMES = 150
 
 # track_idごとの高さ履歴
 HISTORY_SIZE = 10
