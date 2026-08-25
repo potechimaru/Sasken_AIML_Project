@@ -1,6 +1,5 @@
 import subprocess
 
-
 class AlarmController:
     def __init__(self):
         self.process = None
