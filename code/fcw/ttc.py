@@ -17,12 +17,12 @@
         ・dequeによるN-frame Height History
         ・Linear Regressionによるdh/dt
         ・TTC計算
-        ・単一ThresholdによるAlert
 
         未実装
         ・連続N回判定
-        ・Hysteresis
         ・その他のExperiment 4 refinement
+
+警報のヒステリシス判定はalert.pyが担当する。
 """
 
 from collections import deque
@@ -68,9 +68,10 @@ def calculate_ttc(height_history, fps, min_history_size):
         return dh_dt, None
 
     current_height = heights[-1]
-    ttc = current_height / dh_dt
+    ttc = float(current_height / dh_dt)
 
     return dh_dt, ttc
+
 
 class TtcEstimator:
     """track_idごとに高さ履歴を保持し、毎フレームTTCを再計算する。"""
@@ -80,14 +81,12 @@ class TtcEstimator:
         fps,
         history_size,
         min_history_size,
-        ttc_threshold,
     ):
         self.fps = fps
         # 保持する履歴の最大フレーム数(N)。大きいほど滑らかだが反応は遅くなる
         self.history_size = history_size
         # TTCの計算を始めるのに必要な最小フレーム数
         self.min_history_size = min_history_size
-        self.ttc_threshold = ttc_threshold
         # track_id -> [(frame_index, height_px), ...] の高さ履歴
         self.height_histories = {}
 
@@ -97,7 +96,6 @@ class TtcEstimator:
         戻り値の辞書のキー
             dh_dt          : 高さの変化率 [px/s] (履歴不足ならNone)
             ttc            : TTCbasic [s] (接近していない/履歴不足ならNone)
-            alert          : TTCが閾値未満かどうか
             history_length : 現在の履歴フレーム数
         """
         # 初めて見るIDなら空の履歴を作り、そこへ今回の高さを追加する
@@ -113,11 +111,9 @@ class TtcEstimator:
             self.min_history_size,
         )
 
-        # ttcがNone(履歴不足・非接近)のときは警報を出さない
         return {
             "dh_dt": dh_dt,
             "ttc": ttc,
-            "alert": ttc is not None and ttc < self.ttc_threshold,
             "history_length": len(history),
         }
 
