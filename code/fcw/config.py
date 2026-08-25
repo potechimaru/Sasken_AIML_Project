@@ -22,7 +22,7 @@ MODEL = str(
     / "ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8"
     / "saved_model"
 )
-VIDEO = str(PROJECT_ROOT / "mp4" / "sample06.mp4")
+VIDEO = str(PROJECT_ROOT / "mp4" / "06_fcw_drive_rec_dump.h264")
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
 # 検出(Object detector)のパラメータ
