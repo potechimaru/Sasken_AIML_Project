@@ -1,13 +1,13 @@
 class AlertDecision:
     def __init__(
-            self, on_threshold=5.0, off_threshold=8.5,
+            self, on_threshold, off_threshold
     ):
             self.on_threshold = on_threshold
             self.off_threshold = off_threshold
 
             self.alert_status = {}
 
-    def update(self, ttc, track_id, on_threshold, off_threshold):
+    def update(self, ttc, track_id):
         alert = self.alert_status.setdefault(
              track_id,
              False,
