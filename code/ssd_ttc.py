@@ -40,7 +40,7 @@ def main():
     # 動画のフレームレートとサイズを取得
     # fpsはdh/dtを求めるときに「フレーム差 -> 秒」へ換算するのに使う重要な値。
     # メタデータが壊れた動画では0が返るので、その場合は30fpsとみなす
-    fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = config.VIDEO_FPS
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"input: {width}x{height}, {fps:.2f} fps")
@@ -73,6 +73,7 @@ def main():
     alert_decision = AlertDecision(
         on_threshold=config.ON_TTC_THRESHOLD,
         off_threshold=config.OFF_TTC_THRESHOLD,
+        r_squared_threshold = config.R_SQUARED_THRESHOLD,
     )
 
     frame_index = 0
@@ -128,6 +129,7 @@ def main():
             )
             car["alert"] = alert_decision.update(
                 car["ttc"],
+                car["r_squared"],
                 car["track_id"],
             )
 
