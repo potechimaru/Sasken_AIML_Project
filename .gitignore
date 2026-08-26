@@ -11,3 +11,6 @@
 # Python
 __pycache__/
 *.pyc
+
+# Local report generators
+/reports/generate_main_implementation_report.py

@@ -9,5 +9,6 @@
     ttc.py        : Experiment 1 - Basic TTC / Experiment 4 - TTC refinement
     alert.py      : Experiment 4 - Alert hysteresis
     alarm.py      : FCW警報状態のmacOSシステム音出力
+    logger.py     : Experiment途中値のCSV記録(Log the Intermediate Values)
     visualizer.py : 実験結果の可視化(TTC alert decisionのログ・プロット節に相当)
 """

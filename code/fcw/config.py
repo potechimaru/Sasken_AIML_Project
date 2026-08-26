@@ -22,9 +22,9 @@ MODEL = str(
     / "ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8"
     / "saved_model"
 )
-VIDEO = str(PROJECT_ROOT / "mp4" / "06_fcw_drive_rec_dump.h264")
+VIDEO = str(PROJECT_ROOT / "mp4" / "sample06.mp4")
 OUTPUT_DIR = PROJECT_ROOT / "output"
-VIDEO_FPS = 25.0
+LOG_DIR = PROJECT_ROOT / "output" / "logs"
 
 # 検出(Object detector)のパラメータ
 CAR_CLASS_ID = 3
@@ -44,9 +44,6 @@ ON_TTC_THRESHOLD = 4.0
 OFF_TTC_THRESHOLD = 6.5
 R_SQUARED_THRESHOLD = 0.8
 REQUIRED_COUNT = 3
-
-#R-squaredの閾値
-R_SQUARED_THRESHOLD = 0.8
 
 # Experiment 2 - Forward ROI の台形の頂点(画像サイズに対する比率)
 # (左上, 右上, 右下, 左下) の順で、道路の遠近に合わせて上辺を狭くしている
