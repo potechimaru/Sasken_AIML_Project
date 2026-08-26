@@ -16,9 +16,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # SSDモデルと入出力のパス
-MODEL = "/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/saved_model"
-VIDEO = "/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/動画/06_fcw_drive_rec_dump.h264"
-OUTPUT_DIR = Path("/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/result_mov")
+MODEL = "input your path"
+VIDEO = "input your path"
+OUTPUT_DIR = Path("input your path")
+LOG_DIR = Path("input your path")
 
 # 検出(Object detector)のパラメータ
 CAR_CLASS_ID = 3
@@ -30,12 +31,13 @@ MAX_MISSED_FRAMES = 150
 
 # Experiment 1 - Basic TTC のパラメータ
 # HISTORY_SIZEは保持するフレーム数、MIN_HISTORY_SIZEはTTC計算に必要な最小フレーム数
-HISTORY_SIZE = 10
+HISTORY_SIZE = 5
 MIN_HISTORY_SIZE = 5
 
 # Experiment 4 - Alert hysteresis のパラメータ
 ON_TTC_THRESHOLD = 4.0
 OFF_TTC_THRESHOLD = 6.5
+R_SQUARED_THRESHOLD = 0.8
 REQUIRED_COUNT = 3
 
 # Experiment 2 - Forward ROI の台形の頂点(画像サイズに対する比率)
@@ -43,6 +45,6 @@ REQUIRED_COUNT = 3
 ROI_RATIOS = (
     (0.42, 0.45),
     (0.58, 0.45),
-    (0.70, 0.95),
-    (0.30, 0.95),
+    (0.70, 1.00),
+    (0.30, 1.00),
 )
