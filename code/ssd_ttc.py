@@ -74,6 +74,8 @@ def main():
     alert_decision = AlertDecision(
         on_threshold=config.ON_TTC_THRESHOLD,
         off_threshold=config.OFF_TTC_THRESHOLD,
+        r_squared_threshold=config.R_SQUARED_THRESHOLD,
+        required_count=config.REQUIRED_COUNT,
     )
     alarm = AlarmController()
     # 例外終了時にもmacOSの警報音プロセスを残さない。
@@ -121,7 +123,7 @@ def main():
 
         # 手順4 (Experiment 1/4): TTCを計算し、ヒステリシス付きで警報を判定する
         for car in forward_cars:
-            # 計算結果(dh_dt / ttc / alert / history_length)をcarへマージし、
+            # 計算結果(dh_dt / ttc / r_squared / history_length)をcarへマージし、
             # 後続の描画処理が1つの辞書だけを見れば済むようにする
             car.update(
                 ttc_estimator.update(
@@ -133,6 +135,7 @@ def main():
             car["alert"] = alert_decision.update(
                 car["ttc"],
                 car["track_id"],
+                car["r_squared"],
             )
 
             # 履歴不足や非接近(dh/dt <= 0)の場合はTTCがNoneになるので、
@@ -143,6 +146,7 @@ def main():
                     f"height={car['height_px']:.1f}px "
                     f"dh/dt={car['dh_dt']:.1f}px/s "
                     f"TTC={car['ttc']:.2f}s "
+                    f"R2={car['r_squared']:.2f} "
                     f"alert={car['alert']}"
                 )
 

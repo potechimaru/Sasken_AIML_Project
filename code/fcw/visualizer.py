@@ -87,6 +87,8 @@ def _build_ttc_label(car, min_history_size):
         return "TTC: N/A (not approaching)"
 
     label = f"TTC: {car['ttc']:.2f} s"
+    if car.get("r_squared") is not None:
+        label += f" R2={car['r_squared']:.2f}"
     if car["alert"]:
         label += " ALERT"
     return label
