@@ -20,10 +20,9 @@
         ・TTC計算
 
         未実装
-        ・連続N回判定
         ・その他のExperiment 4 refinement
 
-警報のヒステリシス判定はalert.pyが担当する。
+警報のヒステリシス判定と連続N回判定はalert.pyが担当する。
 """
 
 from collections import deque

@@ -75,6 +75,7 @@ def main():
         on_threshold=config.ON_TTC_THRESHOLD,
         off_threshold=config.OFF_TTC_THRESHOLD,
         r_squared_threshold=config.R_SQUARED_THRESHOLD,
+        required_count=config.REQUIRED_COUNT,
     )
     alarm = AlarmController()
     # 例外終了時にもmacOSの警報音プロセスを残さない。
