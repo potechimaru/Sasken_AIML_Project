@@ -75,6 +75,10 @@ class AlertDecision:
             if ttc is not None and ttc >= self.off_threshold:
                 alert = False
                 count = 0
+                
+            elif ttc is None:
+                alert = False
+                
             else:
                 alert = True
         #alert がoff
