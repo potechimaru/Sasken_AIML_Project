@@ -14,7 +14,6 @@ ON/OFFすることを防ぐ。危険条件が連続Nフレーム続いたとき�
 
 class AlertDecision:
     """車両ごとのTTC警報状態をヒステリシス付きで管理する。"""
-
     def __init__(
         self,
         on_threshold=5.0,
@@ -49,27 +48,46 @@ class AlertDecision:
         count = self.counter.setdefault(track_id, 0)
 
         # 履歴不足、非接近、または回帰品質が低い場合は警報を解除する。
-        if (
-            ttc is None
-            or r_squared is None
-            or r_squared < self.r_squared_threshold
-        ):
-            alert = False
-            count = 0
-        elif alert:
-            # 警報ON中はOFF閾値を超えたら解除する(ヒステリシス)。
-            if ttc > self.off_threshold:
+        # if (
+        #     ttc is None
+        #     or r_squared is None
+        #     or r_squared < self.r_squared_threshold
+        # ):
+        #     alert = False
+        #     count = 0
+        # elif alert:
+        #     # 警報ON中はOFF閾値を超えたら解除する(ヒステリシス)。
+        #     if ttc > self.off_threshold:
+        #         alert = False
+        #         count = 0
+        #     else:
+        #         alert = True
+        # else:
+        #     # 警報OFF中は危険条件が連続した場合だけONにする。
+        #     if ttc < self.on_threshold:
+        #         count += 1
+        #     else:
+        #         count = 0
+        #     #alert = count >= self.required_count
+
+        #alert がon
+        if alert is True:
+            if ttc is not None and ttc >= self.off_threshold:
                 alert = False
                 count = 0
             else:
                 alert = True
+        #alert がoff
         else:
-            # 警報OFF中は危険条件が連続した場合だけONにする。
-            if ttc < self.on_threshold:
+            if ttc is not None and ttc <= self.on_threshold:
                 count += 1
+                if count>= self.required_count:
+                    alert = True
+                else:
+                    alert = False
             else:
                 count = 0
-            alert = count >= self.required_count
+                alert = False
 
         self.alert_status[track_id] = alert
         self.counter[track_id] = count

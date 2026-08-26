@@ -49,7 +49,7 @@ def calculate_ttc(height_history, fps, min_history_size):
         [frame for frame, _ in height_history],
         dtype=np.float64,
     )
-
+    
     times = (frame_numbers - frame_numbers[0]) / fps
 
     heights = np.array(
