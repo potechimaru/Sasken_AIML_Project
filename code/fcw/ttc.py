@@ -16,6 +16,7 @@
         実装済み
         ・dequeによるN-frame Height History
         ・Linear Regressionによるdh/dt
+        ・決定係数(R²)による回帰品質の評価
         ・TTC計算
 
         未実装
@@ -33,16 +34,17 @@ import numpy as np
 def calculate_ttc(height_history, fps, min_history_size):
     """複数フレームのボックス高さ履歴から基本TTCを計算する。
 
-    戻り値は (dh_dt, ttc)。履歴が足りない場合は (None, None)、
-    接近していない場合は (dh_dt, None) を返す。
+    戻り値は (dh_dt, ttc, r_squared)。履歴が足りない場合は
+    (None, None, None)、接近していない場合は
+    (dh_dt, None, r_squared) を返す。
     """
     # 2フレームだけで判断すると検出枠のブレをそのまま拾ってしまうため、
     # 一定数の履歴が溜まるまではTTCを出さない(資料3.)
     if len(height_history) < min_history_size:
-        return None, None
+        return None, None, None
 
     if fps <= 0:
-        return None, None
+        return None, None, None
 
     frame_numbers = np.array(
         [frame for frame, _ in height_history],
@@ -56,21 +58,32 @@ def calculate_ttc(height_history, fps, min_history_size):
         dtype=np.float64,
     )
 
-    slope, _ = np.polyfit(
+    slope, intercept = np.polyfit(
         times,
         heights,
         1,
     )
 
+    predicted_heights = slope * times + intercept
+    residual_sum = np.sum((heights - predicted_heights) ** 2)
+    total_sum = np.sum((heights - np.mean(heights)) ** 2)
+
+    # 高さが全て同じ場合、回帰直線との誤差はないものとして扱う。
+    # この場合はdh/dtが0になるため、後段でTTCなしと判定される。
+    if total_sum == 0:
+        r_squared = 1.0
+    else:
+        r_squared = float(1 - residual_sum / total_sum)
+
     dh_dt = float(slope)
 
     if dh_dt <= 0:
-        return dh_dt, None
+        return dh_dt, None, r_squared
 
-    current_height = heights[-1]
+    current_height = float(heights[-1])
     ttc = float(current_height / dh_dt)
 
-    return dh_dt, ttc
+    return dh_dt, ttc, r_squared
 
 
 class TtcEstimator:
@@ -96,6 +109,7 @@ class TtcEstimator:
         戻り値の辞書のキー
             dh_dt          : 高さの変化率 [px/s] (履歴不足ならNone)
             ttc            : TTCbasic [s] (接近していない/履歴不足ならNone)
+            r_squared      : 線形回帰の決定係数 (履歴不足ならNone)
             history_length : 現在の履歴フレーム数
         """
         # 初めて見るIDなら空の履歴を作り、そこへ今回の高さを追加する
@@ -105,7 +119,7 @@ class TtcEstimator:
         )
         history.append((frame_index, height_px))
 
-        dh_dt, ttc = calculate_ttc(
+        dh_dt, ttc, r_squared = calculate_ttc(
             history,
             self.fps,
             self.min_history_size,
@@ -114,6 +128,7 @@ class TtcEstimator:
         return {
             "dh_dt": dh_dt,
             "ttc": ttc,
+            "r_squared": r_squared,
             "history_length": len(history),
         }
 

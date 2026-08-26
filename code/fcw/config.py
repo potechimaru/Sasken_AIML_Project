@@ -41,6 +41,7 @@ MIN_HISTORY_SIZE = 5
 # Experiment 4 - Alert hysteresis のパラメータ
 ON_TTC_THRESHOLD = 4.0
 OFF_TTC_THRESHOLD = 6.5
+R_SQUARED_THRESHOLD = 0.8
 
 # Experiment 2 - Forward ROI の台形の頂点(画像サイズに対する比率)
 # (左上, 右上, 右下, 左下) の順で、道路の遠近に合わせて上辺を狭くしている
