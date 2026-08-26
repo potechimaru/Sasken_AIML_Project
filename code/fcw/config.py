@@ -24,6 +24,7 @@ MODEL = str(
 )
 VIDEO = str(PROJECT_ROOT / "mp4" / "sample06.mp4")
 OUTPUT_DIR = PROJECT_ROOT / "output"
+LOG_DIR = PROJECT_ROOT / "output" / "logs"
 
 # 検出(Object detector)のパラメータ
 CAR_CLASS_ID = 3

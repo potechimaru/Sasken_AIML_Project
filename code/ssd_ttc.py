@@ -23,6 +23,7 @@ from fcw.alert import AlertDecision
 from fcw.detector import CarDetector
 from fcw.tracker import IouTracker
 from fcw.ttc import TtcEstimator
+from fcw.logger import ExperimentLogger
 
 
 def main():
@@ -78,8 +79,12 @@ def main():
         required_count=config.REQUIRED_COUNT,
     )
     alarm = AlarmController()
-    # 例外終了時にもmacOSの警報音プロセスを残さない。
+
+    logger = ExperimentLogger(config.LOG_DIR, fps)
+
+    # 例外終了時にも警報音プロセスと未保存ログを残さない。
     atexit.register(alarm.close)
+    atexit.register(logger.close)
 
     frame_index = 0
     infer_ms_list = []
@@ -138,6 +143,8 @@ def main():
                 car["r_squared"],
             )
 
+            logger.record(frame_index, car)
+
             # 履歴不足や非接近(dh/dt <= 0)の場合はTTCがNoneになるので、
             # 数値が出たものだけをログに残す
             if car["ttc"] is not None:
@@ -169,6 +176,7 @@ def main():
             break
 
     alarm.close()
+    logger.close()
     writer.release()
 
     # --- 後片付け: 推論速度の集計(リアルタイム処理が可能かの確認用) ---
