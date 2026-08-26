@@ -16,10 +16,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # SSDモデルと入出力のパス
-MODEL = "input your path"
-VIDEO = "input your path"
-OUTPUT_DIR = Path("input your path")
-LOG_DIR = Path("input your path")
+MODEL = "/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/saved_model"
+VIDEO = "/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/動画/06_fcw_drive_rec_dump.h264"
+OUTPUT_DIR = Path("/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/result_mov")
+LOG_DIR = Path("/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/csv_log")
 
 # 検出(Object detector)のパラメータ
 CAR_CLASS_ID = 3

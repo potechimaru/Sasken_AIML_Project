@@ -80,13 +80,19 @@ class AlertDecision:
                 alert = False
                 
             else:
-                alert = True
+                if r_squared > self.r_squared_threshold:
+                    alert = True
+                else:
+                    alert = False
         #alert がoff
         else:
             if ttc is not None and ttc <= self.on_threshold:
                 count += 1
                 if count>= self.required_count:
-                    alert = True
+                    if r_squared > self.r_squared_threshold:
+                        alert = True
+                    else:
+                        alert = False
                 else:
                     alert = False
             else:

@@ -1,0 +1,1 @@
+car["r_squared"],
