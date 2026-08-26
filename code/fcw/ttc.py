@@ -16,16 +16,18 @@
         実装済み
         ・dequeによるN-frame Height History
         ・Linear Regressionによるdh/dt
+        ・決定係数(R²)による回帰品質の評価
         ・TTC計算
-        ・単一ThresholdによるAlert
 
         未実装
         ・連続N回判定
-        ・Hysteresis
         ・その他のExperiment 4 refinement
+
+警報のヒステリシス判定はalert.pyが担当する。
 """
 
 from collections import deque
+
 import numpy as np
 
 
@@ -45,45 +47,43 @@ def calculate_ttc(height_history, fps, min_history_size):
         return None, None, None
 
     frame_numbers = np.array(
-        [frame for frame, height in height_history],
+        [frame for frame, _ in height_history],
         dtype=np.float64,
     )
 
-    times = (
-        frame_numbers - frame_numbers[0]
-    ) / fps
+    times = (frame_numbers - frame_numbers[0]) / fps
 
     heights = np.array(
-        [height for frame, height in height_history],
+        [height for _, height in height_history],
         dtype=np.float64,
     )
 
-    slope, intercept = np.polyfit(times, heights, 1)
+    slope, intercept = np.polyfit(
+        times,
+        heights,
+        1,
+    )
 
     predicted_heights = slope * times + intercept
+    residual_sum = np.sum((heights - predicted_heights) ** 2)
+    total_sum = np.sum((heights - np.mean(heights)) ** 2)
 
-    # 残差平方和 Residual Sum of Squares
-    ss_res = np.sum((heights - predicted_heights) ** 2)
-
-    # 全平方和 Total Sum of Squares
-    ss_tot = np.sum((heights - np.mean(heights)) ** 2)
-
-    # 決定係数 R^2
-    if ss_tot == 0:
+    # 高さが全て同じ場合、回帰直線との誤差はないものとして扱う。
+    # この場合はdh/dtが0になるため、後段でTTCなしと判定される。
+    if total_sum == 0:
         r_squared = 1.0
     else:
-        r_squared = 1 - (ss_res / ss_tot)
+        r_squared = float(1 - residual_sum / total_sum)
 
     dh_dt = float(slope)
 
     if dh_dt <= 0:
-        return dh_dt, None, float(r_squared)
+        return dh_dt, None, r_squared
 
     current_height = float(heights[-1])
+    ttc = float(current_height / dh_dt)
 
-    ttc = current_height / dh_dt
-
-    return dh_dt, float(ttc), float(r_squared)
+    return dh_dt, ttc, r_squared
 
 
 class TtcEstimator:
@@ -109,7 +109,7 @@ class TtcEstimator:
         戻り値の辞書のキー
             dh_dt          : 高さの変化率 [px/s] (履歴不足ならNone)
             ttc            : TTCbasic [s] (接近していない/履歴不足ならNone)
-            r_squared      : Linear Regressionの決定係数
+            r_squared      : 線形回帰の決定係数 (履歴不足ならNone)
             history_length : 現在の履歴フレーム数
         """
         # 初めて見るIDなら空の履歴を作り、そこへ今回の高さを追加する
@@ -119,19 +119,17 @@ class TtcEstimator:
         )
         history.append((frame_index, height_px))
 
-
         dh_dt, ttc, r_squared = calculate_ttc(
             history,
             self.fps,
             self.min_history_size,
         )
 
-        # ttcがNone(履歴不足・非接近)のときは警報を出さない
         return {
             "dh_dt": dh_dt,
             "ttc": ttc,
-            "history_length": len(history),
             "r_squared": r_squared,
+            "history_length": len(history),
         }
 
     def drop(self, track_id):

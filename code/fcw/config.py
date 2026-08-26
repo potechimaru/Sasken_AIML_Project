@@ -42,6 +42,7 @@ MIN_HISTORY_SIZE = 5
 # Experiment 4 - Alert hysteresis のパラメータ
 ON_TTC_THRESHOLD = 4.0
 OFF_TTC_THRESHOLD = 6.5
+R_SQUARED_THRESHOLD = 0.8
 
 #R-squaredの閾値
 R_SQUARED_THRESHOLD = 0.8
