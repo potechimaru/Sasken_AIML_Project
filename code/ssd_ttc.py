@@ -103,6 +103,14 @@ def main():
         cars, elapsed_ms = detector.detect(frame)
         infer_ms_list.append(elapsed_ms)
 
+        a=len(cars)
+        #print(f"this is a---------->>>>>>>{a}")
+        if a==0:
+            det_car = 0
+        else:
+            det_car = 1
+        #print(f"this is det_car---->>>>>>>{det_car}")
+
         print(f"SSD inference FPS: {1000.0 / elapsed_ms:.2f}")
         print(f"______________frame={frame_index}______________")
         print(f"\ninference time: {elapsed_ms:.2f} ms\n")
@@ -127,35 +135,46 @@ def main():
             alert_decision.drop(track_id)
 
         # 手順4 (Experiment 1/4): TTCを計算し、ヒステリシス付きで警報を判定する
-        for car in forward_cars:
-            # 計算結果(dh_dt / ttc / r_squared / history_length)をcarへマージし、
-            # 後続の描画処理が1つの辞書だけを見れば済むようにする
-            car.update(
-                ttc_estimator.update(
+        if det_car==1:
+
+            for car in forward_cars:
+                # 計算結果(dh_dt / ttc / r_squared / history_length)をcarへマージし、
+                # 後続の描画処理が1つの辞書だけを見れば済むようにする
+                car.update(
+                    ttc_estimator.update(
+                        car["track_id"],
+                        frame_index,
+                        car["height_px"],
+                    )
+                )
+                car["alert"] = alert_decision.update(
+                    car["ttc"],
                     car["track_id"],
-                    frame_index,
-                    car["height_px"],
+                    car["r_squared"],
                 )
-            )
-            car["alert"] = alert_decision.update(
-                car["ttc"],
-                car["track_id"],
-                car["r_squared"],
-            )
 
-            logger.record(frame_index, car)
+                #print(f"this is det_car in for---->>>>>>>{det_car}")
+                #if det_car==0:
+                    
+                    #print("aaaaaaaaaaaaaaaaa")
+                #elif det_car==1:
+                logger.record(frame_index, car)
+                    #print("bbbbbbbbbbbbbbbbb")
 
-            # 履歴不足や非接近(dh/dt <= 0)の場合はTTCがNoneになるので、
-            # 数値が出たものだけをログに残す
-            if car["ttc"] is not None:
-                print(
-                    f"ID={car['track_id']} "
-                    f"height={car['height_px']:.1f}px "
-                    f"dh/dt={car['dh_dt']:.1f}px/s "
-                    f"TTC={car['ttc']:.2f}s "
-                    f"R2={car['r_squared']:.2f} "
-                    f"alert={car['alert']}"
-                )
+                # 履歴不足や非接近(dh/dt <= 0)の場合はTTCがNoneになるので、
+                # 数値が出たものだけをログに残す
+                if car["ttc"] is not None:
+                    print(
+                        f"ID={car['track_id']} "
+                        f"height={car['height_px']:.1f}px "
+                        f"dh/dt={car['dh_dt']:.1f}px/s "
+                        f"TTC={car['ttc']:.2f}s "
+                        f"R2={car['r_squared']:.2f} "
+                        f"alert={car['alert']}"
+                    )
+        elif det_car==0:
+            logger.record(frame_index, None)
+
 
         # 1台でも警報中なら音を鳴らす。車両ごとのループ内で停止判定しない。
         alarm.set_active(

@@ -948,6 +948,7 @@ static vx_status fill_background_image(vx_image background)
     return (status);
 }
 
+/*Open VXコンテキストと各種モジュールの初期化*/
 static vx_status app_init(AppObj *obj)
 {
     int status = VX_SUCCESS;

@@ -46,26 +46,50 @@ class ExperimentLogger:
             self.log_dir / f"ssd_ttc_log_{time.time():.0f}.csv"
         )
 
-    def record(self, frame_index: int, car):
+    def record(self, frame_index: int, car=None):
+        #毎フレームごとにcsvへ追加
         """1台分の途中値をバッファへ追加する。"""
         if self._closed:
             raise RuntimeError("ExperimentLogger is already closed")
 
-        self.rows.append(
-            {
-                "frame": frame_index,
-                "time_s": (frame_index - 1) / self.fps,
-                "track_id": car["track_id"],
-                "height_px": car.get("height_px"),
-                "dh_dt": car.get("dh_dt"),
-                "ttc": car.get("ttc"),
-                "r_squared": car.get("r_squared"),
-                "history_length": car.get("history_length"),
-                "alert": bool(car.get("alert", False)),
-                "score": float(car["score"]) if "score" in car else None,
-                "iou": car.get("iou"),
-            }
-        )
+        if car is None:
+            self.rows.append(
+                {
+                    "frame": frame_index,
+                    "time_s": (frame_index - 1) / self.fps,
+                    "track_id": 0,
+                    "height_px": 0,
+                    "dh_dt": 0,
+                    "ttc": 0,
+                    "r_squared": 0,
+                    "history_length": 0,
+                    "alert": 0,
+                    "score": 0,
+                    "iou": 0,
+                }
+            )
+            return
+        else:
+            if car.get('ttc')==None:
+                put=0
+            else:
+                put=car.get('ttc')
+                
+            self.rows.append(
+                {
+                    "frame": frame_index,
+                    "time_s": (frame_index - 1) / self.fps,
+                    "track_id": car["track_id"],
+                    "height_px": car.get("height_px"),
+                    "dh_dt": car.get("dh_dt"),
+                    "ttc": put,
+                    "r_squared": car.get("r_squared"),
+                    "history_length": car.get("history_length"),
+                    "alert": bool(car.get("alert", False)),
+                    "score": float(car["score"]) if "score" in car else None,
+                    "iou": car.get("iou"),
+                }
+            )
 
     def close(self):
         """バッファをCSVへ書き出して閉じる。"""
