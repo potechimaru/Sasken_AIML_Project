@@ -1,4 +1,4 @@
-"""ボックス高さ履歴からTTCとアラートを求めるコンポーネント。
+"""ボックス高さ履歴からTTCを求めるコンポーネント。
 
 対応する資料の節:
     fcw_ttc_incremental_approach.pdf
@@ -28,6 +28,9 @@
 from collections import deque
 
 import numpy as np
+
+
+R_SQUARED_THRESHOLD = 0.8
 
 
 def calculate_ttc(height_history, fps, min_history_size):
@@ -76,7 +79,12 @@ def calculate_ttc(height_history, fps, min_history_size):
 
     dh_dt = float(slope)
 
+    # 傾きがマイナス、接近していない場合は計算しない
     if dh_dt <= 0:
+        return dh_dt, None, r_squared
+
+    # R²が低い場合は、信頼できないためTTCをNoneにする。
+    elif r_squared < R_SQUARED_THRESHOLD:
         return dh_dt, None, r_squared
 
     current_height = float(heights[-1])

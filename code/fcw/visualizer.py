@@ -77,14 +77,15 @@ def draw_cars(image, cars, min_history_size):
 
 
 def _build_ttc_label(car, min_history_size):
-    """履歴不足・非接近・TTC算出済みの3状態を文字列にする。"""
+    """履歴不足・TTCなし・TTC算出済みの3状態を文字列にする。"""
     # 履歴が溜まるまでの数フレームは計算中と表示する
     if car["history_length"] < min_history_size:
         return "TTC: calculating..."
 
-    # 履歴は十分でもTTCがNoneなら、dh/dt <= 0 つまり接近していない状態
+    # TTCがNoneになる理由は、非接近またはttc.pyの信頼性判定による無効化。
+    # ここでは理由を断定せず、TTCなしとして表示する。
     if car["ttc"] is None:
-        return "TTC: N/A (not approaching)"
+        return "TTC: N/A"
 
     label = f"TTC: {car['ttc']:.2f} s"
     if car.get("r_squared") is not None:

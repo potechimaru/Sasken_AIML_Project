@@ -16,10 +16,18 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # SSDモデルと入出力のパス
-MODEL = "/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/saved_model"
-VIDEO = "/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/動画/06_fcw_drive_rec_dump.h264"
-OUTPUT_DIR = Path("/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/result_mov")
-LOG_DIR = Path("/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/csv_log")
+# このconfig.pyの場所からプロジェクトのルートを求めるため、
+# Windowsのバックスラッシュを直接文字列へ書く必要がない。
+MODEL = str(
+    PROJECT_ROOT
+    / "model"
+    / "ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8"
+    / "saved_model"
+)
+VIDEO = str(PROJECT_ROOT / "mp4" / "06_fcw_drive_rec_dump.h264")
+OUTPUT_DIR = PROJECT_ROOT / "output"
+LOG_DIR = OUTPUT_DIR / "logs"
+VIDEO_FPS = 25.0
 
 # 検出(Object detector)のパラメータ
 CAR_CLASS_ID = 3
@@ -37,7 +45,6 @@ MIN_HISTORY_SIZE = 5
 # Experiment 4 - Alert hysteresis のパラメータ
 ON_TTC_THRESHOLD = 4.0
 OFF_TTC_THRESHOLD = 6.5
-R_SQUARED_THRESHOLD = 0.8
 REQUIRED_COUNT = 3
 
 # Experiment 2 - Forward ROI の台形の頂点(画像サイズに対する比率)

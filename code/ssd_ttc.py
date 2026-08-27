@@ -1,3 +1,4 @@
+# 分割前のコード
 """実験1〜3のベースコード(パイプライン統合のエントリポイント)。
 
 各段の中身はfcwパッケージのコンポーネントに分かれている。
@@ -12,18 +13,15 @@
 (detector -> ROI -> tracking -> TTC -> alert -> 描画)の接続だけを担当する。
 """
 
-import atexit
 import time
 
 import cv2
 
 from fcw import config, roi, visualizer
-from fcw.alarm import AlarmController
 from fcw.alert import AlertDecision
 from fcw.detector import CarDetector
 from fcw.tracker import IouTracker
 from fcw.ttc import TtcEstimator
-from fcw.logger import ExperimentLogger
 
 
 def main():
@@ -41,8 +39,8 @@ def main():
 
     # 動画のフレームレートとサイズを取得
     # fpsはdh/dtを求めるときに「フレーム差 -> 秒」へ換算するのに使う重要な値。
-    # メタデータが壊れた動画では0が返るので、その場合は30fpsとみなす
-    fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
+    # メタデータが壊れた動画では0が返るので、その場合は設定値を使う
+    fps = capture.get(cv2.CAP_PROP_FPS) or config.VIDEO_FPS
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"input: {width}x{height}, {fps:.2f} fps")
@@ -75,16 +73,8 @@ def main():
     alert_decision = AlertDecision(
         on_threshold=config.ON_TTC_THRESHOLD,
         off_threshold=config.OFF_TTC_THRESHOLD,
-        r_squared_threshold=config.R_SQUARED_THRESHOLD,
         required_count=config.REQUIRED_COUNT,
     )
-    alarm = AlarmController()
-
-    logger = ExperimentLogger(config.LOG_DIR, fps)
-
-    # 例外終了時にも警報音プロセスと未保存ログを残さない。
-    atexit.register(alarm.close)
-    atexit.register(logger.close)
 
     frame_index = 0
     infer_ms_list = []
@@ -140,12 +130,9 @@ def main():
             car["alert"] = alert_decision.update(
                 car["ttc"],
                 car["track_id"],
-                car["r_squared"],
             )
 
-            logger.record(frame_index, car)
-
-            # 履歴不足や非接近(dh/dt <= 0)の場合はTTCがNoneになるので、
+            # 履歴不足、非接近(dh/dt <= 0)、またはR²不足の場合はTTCがNoneになるので、
             # 数値が出たものだけをログに残す
             if car["ttc"] is not None:
                 print(
@@ -153,14 +140,8 @@ def main():
                     f"height={car['height_px']:.1f}px "
                     f"dh/dt={car['dh_dt']:.1f}px/s "
                     f"TTC={car['ttc']:.2f}s "
-                    f"R2={car['r_squared']:.2f} "
                     f"alert={car['alert']}"
                 )
-
-        # 1台でも警報中なら音を鳴らす。車両ごとのループ内で停止判定しない。
-        alarm.set_active(
-            any(car["alert"] for car in forward_cars)
-        )
 
         # 手順5: 元のフレームを壊さないようコピーしてから描画する
         vis = frame.copy()
@@ -175,8 +156,6 @@ def main():
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
-    alarm.close()
-    logger.close()
     writer.release()
 
     # --- 後片付け: 推論速度の集計(リアルタイム処理が可能かの確認用) ---
