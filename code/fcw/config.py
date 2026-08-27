@@ -31,8 +31,8 @@ MAX_MISSED_FRAMES = 150
 
 # Experiment 1 - Basic TTC のパラメータ
 # HISTORY_SIZEは保持するフレーム数、MIN_HISTORY_SIZEはTTC計算に必要な最小フレーム数
-HISTORY_SIZE = 5
-MIN_HISTORY_SIZE = 5
+HISTORY_SIZE = 10
+MIN_HISTORY_SIZE = 10
 
 # Experiment 4 - Alert hysteresis のパラメータ
 ON_TTC_THRESHOLD = 4.0
