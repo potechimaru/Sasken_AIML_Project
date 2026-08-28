@@ -80,6 +80,7 @@
 #include "avp_img_mosaic_module.h"
 #include "avp_display_module.h"
 #include "avp_test.h"
+#include "avp_fcw_module.h"
 
 #ifndef x86_64
 #define AVP_ENABLE_PIPELINE_FLOW
@@ -89,6 +90,10 @@
 #define AVP_PIPELINE_DEPTH   (6)
 
 typedef struct {
+
+    AvpFwcContext fcwContext;
+    AvpFwcConfig fcwConfig;
+    AvpFwcFrameResult fcwFrameResult;
 
     ScalerObj  scalerObj;
     PreProcObj preProcObj;
@@ -1012,6 +1017,16 @@ static vx_status app_init(AppObj *obj)
     {
         status = app_init_post_proc_od(obj->context, &obj->odPostProcObj, "od_post_proc_obj");
     }
+
+    // 追加
+    if(status == VX_SUCCESS)
+    {
+        status = avp_fcw_init(
+            &obj->fcwContext,
+            &obj->fcwConfig
+        );
+    }
+    
     if(status == VX_SUCCESS)
     {
         status = app_init_post_proc_pc(obj->context, &obj->pcPostProcObj, "pc_post_proc_obj");
@@ -1371,6 +1386,31 @@ static vx_status app_run_graph_for_one_frame_sequential(AppObj *obj, vx_int32 fr
 #endif
 
     status = vxProcessGraph(obj->graph);
+
+    // 追加
+    if (status == VX_SUCCESS)
+    {
+        vx_tensor output_tensor;
+    
+
+        output_tensor = (vx_tensor)vxGetObjectArrayItem(
+            obj->odTIDLObj.output1_tensor_arr,
+            0
+        );
+
+        status = avp_fcw_process_tidl(
+            &obj->fcwContext,
+            output_tensor,
+            &obj->odPostProcObj.ioBufDesc,
+            frame_id,
+            obj->scalerObj.input.width,
+            obj->scalerObj.input.height,
+            &obj->fcwResult
+        );
+
+        vxReleaseTensor(&output_tensor);
+    }
+    // ここまで
 
 #ifdef x86_64
     printf("Done!\n");
@@ -1925,6 +1965,8 @@ static void app_pipeline_params_defaults(AppObj *obj)
 
 static void app_default_param_set(AppObj *obj)
 {
+    avp_fcw_config_set_defaults(&obj->fcwConfig); // 追加
+
     set_pre_proc_defaults(&obj->preProcObj);
 
     set_post_proc_defaults_od(&obj->odPostProcObj);

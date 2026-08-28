@@ -3,7 +3,8 @@ ifeq ($(TARGET_CPU),$(filter $(TARGET_CPU), x86_64 A72 A53))
 include $(PRELUDE)
 
 TARGET      := vx_app_tidl_avp2
-CSOURCES    := main.c avp_scaler_module.c avp_pre_proc_module.c avp_tidl_module.c avp_post_proc_module.c fisheye_angle_table.c avp_img_mosaic_module.c avp_draw_detections_module.c avp_display_module.c
+# avp_fcw_module.cを追加
+CSOURCES    := main.c avp_scaler_module.c avp_pre_proc_module.c avp_tidl_module.c avp_post_proc_module.c avp_fcw_module.c fisheye_angle_table.c avp_img_mosaic_module.c avp_draw_detections_module.c avp_display_module.c
 
 ifeq ($(HOST_COMPILER),GCC_LINUX)
 CFLAGS += -Wno-unused-function
