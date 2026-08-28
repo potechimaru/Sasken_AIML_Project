@@ -1,3 +1,4 @@
+# 分割前のコード
 """実験1〜3のベースコード(パイプライン統合のエントリポイント)。
 
 各段の中身はfcwパッケージのコンポーネントに分かれている。
@@ -18,12 +19,12 @@ import time
 import cv2
 
 from fcw import config, roi, visualizer
-from fcw.alarm import AlarmController
 from fcw.alert import AlertDecision
+from fcw.alarm import AlarmController
 from fcw.detector import CarDetector
+from fcw.logger import ExperimentLogger
 from fcw.tracker import IouTracker
 from fcw.ttc import TtcEstimator
-from fcw.logger import ExperimentLogger
 
 
 def main():
@@ -41,8 +42,8 @@ def main():
 
     # 動画のフレームレートとサイズを取得
     # fpsはdh/dtを求めるときに「フレーム差 -> 秒」へ換算するのに使う重要な値。
-    # メタデータが壊れた動画では0が返るので、その場合は30fpsとみなす
-    fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
+    # メタデータが壊れた動画では0が返るので、その場合は設定値を使う
+    fps = capture.get(cv2.CAP_PROP_FPS) or config.VIDEO_FPS
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"input: {width}x{height}, {fps:.2f} fps")
@@ -75,14 +76,12 @@ def main():
     alert_decision = AlertDecision(
         on_threshold=config.ON_TTC_THRESHOLD,
         off_threshold=config.OFF_TTC_THRESHOLD,
-        r_squared_threshold=config.R_SQUARED_THRESHOLD,
         required_count=config.REQUIRED_COUNT,
     )
     alarm = AlarmController()
-
     logger = ExperimentLogger(config.LOG_DIR, fps)
 
-    # 例外終了時にも警報音プロセスと未保存ログを残さない。
+    # 例外終了時にも警報音プロセスと未保存ログを閉じる。
     atexit.register(alarm.close)
     atexit.register(logger.close)
 
@@ -102,14 +101,6 @@ def main():
         # 手順1: SSDで車両を検出する(この時点ではROI外の車も含む)
         cars, elapsed_ms = detector.detect(frame)
         infer_ms_list.append(elapsed_ms)
-
-        a=len(cars)
-        #print(f"this is a---------->>>>>>>{a}")
-        if a==0:
-            det_car = 0
-        else:
-            det_car = 1
-        #print(f"this is det_car---->>>>>>>{det_car}")
 
         print(f"SSD inference FPS: {1000.0 / elapsed_ms:.2f}")
         print(f"______________frame={frame_index}______________")
@@ -135,52 +126,43 @@ def main():
             alert_decision.drop(track_id)
 
         # 手順4 (Experiment 1/4): TTCを計算し、ヒステリシス付きで警報を判定する
-        if det_car==1:
-
-            for car in forward_cars:
-                # 計算結果(dh_dt / ttc / r_squared / history_length)をcarへマージし、
-                # 後続の描画処理が1つの辞書だけを見れば済むようにする
-                car.update(
-                    ttc_estimator.update(
-                        car["track_id"],
-                        frame_index,
-                        car["height_px"],
-                    )
-                )
-                car["alert"] = alert_decision.update(
-                    car["ttc"],
+        for car in forward_cars:
+            # 計算結果(dh_dt / ttc / r_squared / history_length)をcarへマージし、
+            # 後続の描画処理が1つの辞書だけを見れば済むようにする
+            car.update(
+                ttc_estimator.update(
                     car["track_id"],
-                    car["r_squared"],
+                    frame_index,
+                    car["height_px"],
+                )
+            )
+            # R²不足時はttc.pyがttc=Noneを返すため、AlertDecisionは2引数で呼ぶ。
+            car["alert"] = alert_decision.update(
+                car["ttc"],
+                car["track_id"],
+            )
+
+            # TTCがNoneの場合も含めて、前方車両の行を毎frame記録する。
+            logger.record(frame_index, car)
+
+            if car["ttc"] is not None:
+                print(
+                    f"ID={car['track_id']} "
+                    f"height={car['height_px']:.1f}px "
+                    f"dh/dt={car['dh_dt']:.1f}px/s "
+                    f"TTC={car['ttc']:.2f}s "
+                    f"R2={car['r_squared']:.2f} "
+                    f"alert={car['alert']}"
                 )
 
-                #print(f"this is det_car in for---->>>>>>>{det_car}")
-                #if det_car==0:
-                    
-                    #print("aaaaaaaaaaaaaaaaa")
-                #elif det_car==1:
-                logger.record(frame_index, car)
-                    #print("bbbbbbbbbbbbbbbbb")
-
-                # 履歴不足や非接近(dh/dt <= 0)の場合はTTCがNoneになるので、
-                # 数値が出たものだけをログに残す
-                if car["ttc"] is not None:
-                    print(
-                        f"ID={car['track_id']} "
-                        f"height={car['height_px']:.1f}px "
-                        f"dh/dt={car['dh_dt']:.1f}px/s "
-                        f"TTC={car['ttc']:.2f}s "
-                        f"R2={car['r_squared']:.2f} "
-                        f"alert={car['alert']}"
-                    )
-        elif det_car==0:
+        # 前方車両がないframeもCSVに残す。detectorにROI外の車両しかない場合も含む。
+        if not forward_cars:
             logger.record(frame_index, None)
-
 
         # 1台でも警報中なら音を鳴らす。車両ごとのループ内で停止判定しない。
         alarm.set_active(
             any(car["alert"] for car in forward_cars)
         )
-
         # 手順5: 元のフレームを壊さないようコピーしてから描画する
         vis = frame.copy()
         visualizer.draw_roi(vis, roi_polygon)
