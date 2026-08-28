@@ -59,11 +59,13 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
-
 #include "avp_pre_proc_module.h"
+
+/*テンソル入力へ変換する処理*/
 
 static void createOutputTensors(vx_context context, vx_user_data_object config, vx_tensor output_tensors[]);
 
+/*PreProc設定用のOpenVX配列の作成*/
 vx_status app_init_pre_proc(vx_context context, PreProcObj *preProcObj, char *objName)
 {
     vx_status status = VX_SUCCESS;
@@ -83,6 +85,7 @@ vx_status app_init_pre_proc(vx_context context, PreProcObj *preProcObj, char *ob
     return status;
 }
 
+/*入力テンソルの幅，高さ，チャンネル数，データ型，パディング情報の取得，作成*/
 vx_status app_update_pre_proc(vx_context context, PreProcObj *preProcObj, vx_user_data_object config)
 {
     vx_status status = VX_SUCCESS;
@@ -124,6 +127,7 @@ vx_status app_update_pre_proc(vx_context context, PreProcObj *preProcObj, vx_use
     return status;
 }
 
+
 void app_deinit_pre_proc(PreProcObj *preProcObj)
 {
     vxReleaseArray(&preProcObj->config);
@@ -138,6 +142,7 @@ void app_delete_pre_proc(PreProcObj *preProcObj)
     }
 }
 
+/*テンソルを生成するノードの作成*/
 vx_status app_create_graph_pre_proc(vx_graph graph, PreProcObj *preProcObj, vx_object_array input_arr)
 {
     vx_status status = VX_SUCCESS;
@@ -164,6 +169,7 @@ vx_status app_create_graph_pre_proc(vx_graph graph, PreProcObj *preProcObj, vx_o
     return(status);
 }
 
+/*デバッグ，中間結果確認*/
 vx_status writePreProcOutput(char* file_name, vx_object_array output_arr)
 {
     vx_status status = VX_SUCCESS;
