@@ -81,6 +81,7 @@
 #include "avp_display_module.h"
 #include "avp_test.h"
 #include "avp_fcw_module.h"
+#include "avp_video_input_module.h"
 
 #ifndef x86_64
 #define AVP_ENABLE_PIPELINE_FLOW
@@ -112,7 +113,12 @@ typedef struct {
     DisplayObj displayObj;
 
     vx_char input_file_path[APP_MAX_FILE_PATH];
+    vx_char video_file_path[APP_MAX_FILE_PATH];
     vx_char output_file_path[APP_MAX_FILE_PATH];
+
+    /* 0: numbered raw YUV input, 1: decoded H.264 input */
+    vx_uint32 input_mode;
+    AvpVideoInputContext videoInput;
 
     /* OpenVX references */
     vx_context context;
@@ -183,6 +189,7 @@ static vx_status app_run_graph_interactive(AppObj *obj);
 static void app_delete_graph(AppObj *obj);
 static void app_default_param_set(AppObj *obj);
 static void app_update_param_set(AppObj *obj);
+static vx_status app_read_input_frame(AppObj *obj, vx_object_array input_arr, vx_int32 frame_id);
 #ifdef AVP_ENABLE_PIPELINE_FLOW
 static void add_graph_parameter_by_node_index(vx_graph graph, vx_node node, vx_uint32 node_parameter_index);
 static void app_find_object_array_index(vx_object_array object_array[], vx_reference ref, vx_int32 array_size, vx_int32 *array_idx);
@@ -329,6 +336,7 @@ static void app_set_cfg_default(AppObj *obj)
     snprintf(obj->pcTIDLObj.network_file_path,APP_MAX_FILE_PATH, ".");
 
     snprintf(obj->input_file_path,APP_MAX_FILE_PATH, ".");
+    snprintf(obj->video_file_path,APP_MAX_FILE_PATH, ".");
 }
 
 static void app_parse_cfg_file(AppObj *obj, vx_char *cfg_file_name)
@@ -403,6 +411,41 @@ static void app_parse_cfg_file(AppObj *obj, vx_char *cfg_file_name)
                 {
                     token[strlen(token)-1]=0;
                     strcpy(obj->input_file_path, token);
+                }
+            }
+            else
+            if(strcmp(token, "input_mode")==0)
+            {
+                token = strtok(NULL, s);
+                if(token != NULL)
+                {
+                    size_t token_len = strlen(token);
+                    if((token_len > 0U) && ((token[token_len-1] == '\n') || (token[token_len-1] == '\r')))
+                    {
+                        token[token_len-1] = 0;
+                    }
+                    if((strcmp(token, "h264") == 0) || (strcmp(token, "H264") == 0) || (atoi(token) == 1))
+                    {
+                        obj->input_mode = 1;
+                    }
+                    else
+                    {
+                        obj->input_mode = 0;
+                    }
+                }
+            }
+            else
+            if(strcmp(token, "video_file_path")==0)
+            {
+                token = strtok(NULL, s);
+                if(token != NULL)
+                {
+                    size_t token_len = strlen(token);
+                    if((token_len > 0U) && ((token[token_len-1] == '\n') || (token[token_len-1] == '\r')))
+                    {
+                        token[token_len-1] = 0;
+                    }
+                    strcpy(obj->video_file_path, token);
                 }
             }
             else
@@ -977,6 +1020,13 @@ static vx_status app_init(AppObj *obj)
     {
         status = app_init_scaler(obj->context, &obj->scalerObj, "scaler_obj", AVP_BUFFER_Q_DEPTH);
     }
+    if((status == VX_SUCCESS) && (obj->input_mode == 1U))
+    {
+        status = avp_video_input_init(&obj->videoInput,
+                                      obj->video_file_path,
+                                      (vx_uint32)obj->scalerObj.input.width,
+                                      (vx_uint32)obj->scalerObj.input.height);
+    }
     /* Initialize TIDL first to get tensor I/O information from network */
     if(status == VX_SUCCESS)
     {
@@ -1076,6 +1126,8 @@ static vx_status app_init(AppObj *obj)
 
 static void app_deinit(AppObj *obj)
 {
+    avp_video_input_deinit(&obj->videoInput);
+
     app_deinit_scaler(&obj->scalerObj, AVP_BUFFER_Q_DEPTH);
 
     app_deinit_pre_proc(&obj->preProcObj);
@@ -1362,30 +1414,82 @@ static vx_status app_verify_graph(AppObj *obj)
     return status;
 }
 
+static vx_status app_read_input_frame(AppObj *obj,
+                                      vx_object_array input_arr,
+                                      vx_int32 frame_id)
+{
+    vx_status status = VX_SUCCESS;
+
+    if(obj->input_mode == 1U)
+    {
+        vx_image input_image;
+
+        /* H.264 mode uses one front-camera image in the object array. */
+        input_image = (vx_image)vxGetObjectArrayItem(input_arr, 0U);
+        status = vxGetStatus((vx_reference)input_image);
+        if(status == VX_SUCCESS)
+        {
+            status = avp_video_input_read_frame(&obj->videoInput, input_image);
+        }
+        vxReleaseImage(&input_image);
+
+#ifdef x86_64
+        if(status == VX_SUCCESS)
+        {
+            printf("Decoded H.264 frame %llu\n",
+                   (unsigned long long)obj->videoInput.frame_count);
+        }
+#endif
+    }
+    else
+    {
+        vx_char input_file_name[APP_MAX_FILE_PATH];
+
+        snprintf(input_file_name,
+                 APP_MAX_FILE_PATH,
+                 "%s/%010d.yuv",
+                 obj->input_file_path,
+                 frame_id);
+
+        status = readScalerInput(input_file_name, input_arr, NUM_CH);
+
+#ifdef x86_64
+        if(status == VX_SUCCESS)
+        {
+            printf("Processing file %s ...", input_file_name);
+        }
+#endif
+    }
+
+    return status;
+}
+
 #ifndef AVP_ENABLE_PIPELINE_FLOW
 static vx_status app_run_graph_for_one_frame_sequential(AppObj *obj, vx_int32 frame_id)
 {
     vx_status status = VX_SUCCESS;
 
-    vx_char input_file_name[APP_MAX_FILE_PATH];
-
     ScalerObj *scalerObj = &obj->scalerObj;
-
-    snprintf(input_file_name, APP_MAX_FILE_PATH, "%s/%010d.yuv", obj->input_file_path, frame_id);
 
     appPerfPointBegin(&obj->fileio_perf);
 
-    readScalerInput(input_file_name, scalerObj->input.arr[0], NUM_CH);
+    status = app_read_input_frame(obj, scalerObj->input.arr[0], frame_id);
 
     appPerfPointEnd(&obj->fileio_perf);
 
     APP_PRINTF("App Reading Input Done!\n");
 
 #ifdef x86_64
-    printf("Processing file %s ...", input_file_name);
+    if(status == VX_SUCCESS)
+    {
+        printf("Done!\n");
+    }
 #endif
 
-    status = vxProcessGraph(obj->graph);
+    if(status == VX_SUCCESS)
+    {
+        status = vxProcessGraph(obj->graph);
+    }
 
     // 追加
     if (status == VX_SUCCESS)
@@ -1486,13 +1590,10 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
     /* actual_checksum is the checksum determined by the realtime test */
     uint32_t actual_checksum = 0;
 
-    vx_char input_file_name[APP_MAX_FILE_PATH];
     vx_int32 obj_array_idx = -1;
 
     ScalerObj    *scalerObj    = &obj->scalerObj;
     ImgMosaicObj *imgMosaicObj = &obj->imgMosaicObj;
-
-    snprintf(input_file_name, APP_MAX_FILE_PATH, "%s/%010d.yuv", obj->input_file_path, frame_id);
 
     if(obj->pipeline < 0)
     {
@@ -1505,7 +1606,9 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
 
         appPerfPointBegin(&obj->fileio_perf);
         /* Read input */
-        readScalerInput(input_file_name, scalerObj->input.arr[obj->enqueueCnt], NUM_CH);
+        status = app_read_input_frame(obj,
+                                      scalerObj->input.arr[obj->enqueueCnt],
+                                      frame_id);
 
         appPerfPointEnd(&obj->fileio_perf);
 
@@ -1580,7 +1683,9 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
         }
         if((obj_array_idx != -1) && (status == VX_SUCCESS))
         {
-            status = readScalerInput(input_file_name, scalerObj->input.arr[obj_array_idx], NUM_CH);
+            status = app_read_input_frame(obj,
+                                          scalerObj->input.arr[obj_array_idx],
+                                          frame_id);
         }
         appPerfPointEnd(&obj->fileio_perf);
 
@@ -1990,6 +2095,8 @@ static void app_default_param_set(AppObj *obj)
     obj->is_interactive = 0;
     obj->test_mode      = 0;
     obj->enable_gui     = 1;
+    obj->input_mode     = 0;  /* Keep the existing numbered-YUV behavior by default. */
+    snprintf(obj->video_file_path, APP_MAX_FILE_PATH, ".");
 
     obj->enable_psd     = 1;
     obj->enable_vd      = 1;
