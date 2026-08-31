@@ -1509,7 +1509,7 @@ static vx_status app_run_graph_for_one_frame_sequential(AppObj *obj, vx_int32 fr
             frame_id,
             obj->scalerObj.input.width,
             obj->scalerObj.input.height,
-            &obj->fcwResult
+            &obj->fcwFrameResult
         );
 
         vxReleaseTensor(&output_tensor);
