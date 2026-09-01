@@ -2,9 +2,9 @@
 #include <stddef.h>
 
 /*bboxの座標と高さを計算する*/
-void calculate_center_height(
-    vx_float32 x_mini, 
-    vx_float32 x_max, 
+void calculate_height(
+    // vx_float32 x_mini, 
+    // vx_float32 x_max, 
     vx_float32 y_mini, 
     vx_float32 y_max, 
     fcw_ttc_data_t *ttc_data
@@ -96,7 +96,7 @@ bool calculate_ttc(
 {   
     /*dataやmain内にttcがない、dataが10フレーム分ない、fpsが0以下false*/
     if(ttc_array_data == NILL || ttc == NULL){
-        retrun false;
+        return false;
     }
 
     if (ttc_array_data->history_count < FCW_TTC_HISTORY_SIZE)
