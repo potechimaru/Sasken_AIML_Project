@@ -9,8 +9,8 @@ void calculate_center_height(
     vx_float32 y_max, 
     fcw_ttc_data_t *ttc_data
 ){
-    ttc_data -> center_x = (x_mini + x_max) / 2.0;
-    ttc_data -> center_y = (y_mini + y_max) / 2.0;
+    // ttc_data -> center_x = (x_mini + x_max) / 2.0;
+    // ttc_data -> center_y = (y_mini + y_max) / 2.0;
     ttc_data -> height = y_max - y_mini;
 }
 
