@@ -6,9 +6,8 @@
 #include <VX/vx.h>
 
 #define FCW_TTC_HISTORY_SIZE 10
-#define FCW_TTC_MAX_TRACKS   32
+#define FCW_TTC_MAX_TRACKS 20
 
-/*SSDなどで取得したデータを入れる*/
 typedef struct {
     vx_int32 frame_id;
     vx_int32 track_id;
@@ -16,16 +15,11 @@ typedef struct {
     // vx_float32 center_x;
     // vx_float32 center_y;
     vx_float32 height;
-
 } fcw_ttc_data_t;
 
-/*取得したデータを履歴としてリストに格納する*/
 typedef struct {
     vx_int32 frame_id_history[FCW_TTC_HISTORY_SIZE];
     vx_int32 track_id_history[FCW_TTC_HISTORY_SIZE];
-
-    // vx_float32 array_center_x[FCW_TTC_HISTORY_SIZE];
-    // vx_float32 array_center_y[FCW_TTC_HISTORY_SIZE];
     vx_float32 array_height[FCW_TTC_HISTORY_SIZE];
 
     int history_count;
@@ -46,21 +40,16 @@ typedef struct {
     fcw_ttc_track_t tracks[FCW_TTC_MAX_TRACKS];
 } fcw_ttc_manager_t;
 
-
 void calculate_height(
-    // vx_float32 x_mini,
-    // vx_float32 x_max,
-    vx_float32 y_mini,
+    vx_float32 y_min,
     vx_float32 y_max,
     fcw_ttc_data_t *ttc_data
 );
-
 
 bool ttc_update(
     const fcw_ttc_data_t *ttc_data,
     fcw_ttc_manager_t *manager
 );
-
 
 bool calculate_ttc(
     vx_int32 fps,
@@ -69,4 +58,4 @@ bool calculate_ttc(
     vx_float32 *ttc
 );
 
-#endif
+#endif /* FCW_TTC_H */
