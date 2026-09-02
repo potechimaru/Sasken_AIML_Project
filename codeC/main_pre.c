@@ -1,329 +1,92 @@
-/*
- * 目的:
- * TIDL_ODLayerObjInfoをFCWの共有結果(FcwCar/FcwFrameResult)へコピーし、
- * TTCに必要なfcw_ttc_data_tを作ってtrack_id別の履歴へ追加する。
- *
- * このモジュールはmain.cの中へTIDL→TTC変換処理を直接書かずに済むように
- * するためのアダプタである。TIDLの検出ポインタはtensorのmap中だけ有効
- * なので、呼び出し元はmap中に本モジュールを呼び出すこと。
- */
-
 #include "main_pre.h"
 
-#include <stddef.h>
 #include <string.h>
 
-static vx_float32 fcw_main_pre_clamp_float(
-    vx_float32 value,
-    vx_float32 minimum,
-    vx_float32 maximum
-)
+static vx_float32 fcw_main_pre_clamp(vx_float32 value, vx_float32 min, vx_float32 max)
 {
-    if (value < minimum)
-    {
-        return minimum;
-    }
-
-    if (value > maximum)
-    {
-        return maximum;
-    }
-
+    if (value < min) return min;
+    if (value > max) return max;
     return value;
 }
 
-static vx_int32 fcw_main_pre_clamp_int(
-    vx_int32 value,
-    vx_int32 minimum,
-    vx_int32 maximum
-)
+static vx_float32 fcw_main_pre_normalize(
+    vx_float32 coordinate, vx_int32 size, vx_bool is_normalized)
 {
-    if (value < minimum)
-    {
-        return minimum;
-    }
-
-    if (value > maximum)
-    {
-        return maximum;
-    }
-
-    return value;
+    if (is_normalized == vx_true_e) return coordinate;
+    if (size <= 0) return 0.0F;
+    return coordinate / (vx_float32)size;
 }
 
-static vx_float32 fcw_main_pre_normalize_coordinate(
-    vx_float32 value,
-    vx_int32 source_size,
-    bool is_normalized
-)
+static vx_int32 fcw_main_pre_to_pixel(vx_float32 coordinate, vx_int32 size)
 {
-    if (is_normalized)
-    {
-        return value;
-    }
+    vx_float32 pixel;
 
-    if (source_size <= 0)
-    {
-        return 0.0F;
-    }
-
-    return value / (vx_float32)source_size;
+    if (size <= 0) return 0;
+    pixel = coordinate * (vx_float32)(size - 1);
+    return (vx_int32)(fcw_main_pre_clamp(pixel + 0.5F, 0.0F,
+                                         (vx_float32)(size - 1)));
 }
 
-static vx_int32 fcw_main_pre_to_pixel(
-    vx_float32 normalized_coordinate,
-    vx_int32 image_size
-)
+static fcw_ttc_track_t *fcw_main_pre_find_ttc_track(
+    fcw_ttc_manager_t *manager, vx_int32 track_id)
 {
-    vx_float32 coordinate;
+    vx_uint32 i;
 
-    if (image_size <= 0)
+    for (i = 0U; i < FCW_TTC_MAX_TRACKS; i++)
     {
-        return 0;
-    }
-
-    coordinate = normalized_coordinate * (vx_float32)(image_size - 1);
-
-    /* 四捨五入してから画像範囲に収める */
-    return fcw_main_pre_clamp_int(
-        (vx_int32)(coordinate + 0.5F),
-        0,
-        image_size - 1
-    );
-}
-
-static bool fcw_main_pre_fill_car(
-    FcwCar *car,
-    const FcwConfig *config,
-    vx_int32 channel,
-    vx_int32 track_id,
-    const TIDL_ODLayerObjInfo *tidl_object
-)
-{
-    vx_float32 xmin;
-    vx_float32 ymin;
-    vx_float32 xmax;
-    vx_float32 ymax;
-    vx_float32 swap_value;
-
-    if ((car == NULL) || (config == NULL) || (tidl_object == NULL))
-    {
-        return false;
-    }
-
-    xmin = fcw_main_pre_normalize_coordinate(
-        (vx_float32)tidl_object->xmin,
-        config->tidl_box_width,
-        config->tidl_bbox_is_normalized
-    );
-    ymin = fcw_main_pre_normalize_coordinate(
-        (vx_float32)tidl_object->ymin,
-        config->tidl_box_height,
-        config->tidl_bbox_is_normalized
-    );
-    xmax = fcw_main_pre_normalize_coordinate(
-        (vx_float32)tidl_object->xmax,
-        config->tidl_box_width,
-        config->tidl_bbox_is_normalized
-    );
-    ymax = fcw_main_pre_normalize_coordinate(
-        (vx_float32)tidl_object->ymax,
-        config->tidl_box_height,
-        config->tidl_bbox_is_normalized
-    );
-
-    if (xmin > xmax)
-    {
-        swap_value = xmin;
-        xmin = xmax;
-        xmax = swap_value;
-    }
-
-    if (ymin > ymax)
-    {
-        swap_value = ymin;
-        ymin = ymax;
-        ymax = swap_value;
-    }
-
-    xmin = fcw_main_pre_clamp_float(xmin, 0.0F, 1.0F);
-    ymin = fcw_main_pre_clamp_float(ymin, 0.0F, 1.0F);
-    xmax = fcw_main_pre_clamp_float(xmax, 0.0F, 1.0F);
-    ymax = fcw_main_pre_clamp_float(ymax, 0.0F, 1.0F);
-
-    car->valid = true;
-    car->channel = channel;
-    car->track_id = track_id;
-    car->label = (vx_int32)tidl_object->label;
-    car->score = (vx_float32)tidl_object->score;
-
-    car->normalized_box.xmin = xmin;
-    car->normalized_box.ymin = ymin;
-    car->normalized_box.xmax = xmax;
-    car->normalized_box.ymax = ymax;
-
-    car->pixel_box.xmin = fcw_main_pre_to_pixel(xmin, config->image_width);
-    car->pixel_box.ymin = fcw_main_pre_to_pixel(ymin, config->image_height);
-    car->pixel_box.xmax = fcw_main_pre_to_pixel(xmax, config->image_width);
-    car->pixel_box.ymax = fcw_main_pre_to_pixel(ymax, config->image_height);
-
-    car->bottom_center.x =
-        ((vx_float32)car->pixel_box.xmin +
-         (vx_float32)car->pixel_box.xmax) * 0.5F;
-    car->bottom_center.y = (vx_float32)car->pixel_box.ymax;
-
-    car->height_px =
-        (vx_float32)(car->pixel_box.ymax - car->pixel_box.ymin);
-
-    car->dh_dt = 0.0F;
-    car->ttc_sec = 0.0F;
-    car->r_squared = 0.0F;
-    car->history_length = 0;
-    car->ttc_valid = false;
-    car->alert = false;
-
-    return car->height_px > 0.0F;
-}
-
-static void fcw_main_pre_update_ttc(
-    FcwMainPreContext *pre,
-    FcwCar *car,
-    vx_int32 frame_id,
-    vx_int32 channel,
-    vx_int32 track_id
-)
-{
-    FcwTtcTrack *ttc_track;
-    fcw_ttc_data_t ttc_data;
-    vx_float32 ttc = 0.0F;
-    bool already_updated;
-
-    if ((pre == NULL) || (car == NULL) || (track_id < 0))
-    {
-        return;
-    }
-
-    if (channel != pre->context.config.ttc_channel)
-    {
-        return;
-    }
-
-    ttc_track = fcw_ttc_get_or_create(
-        &pre->context.ttc,
-        channel,
-        track_id
-    );
-
-    if (ttc_track == NULL)
-    {
-        return;
-    }
-
-    already_updated =
-        (ttc_track->ttc_data_array.history_count > 0) &&
-        (ttc_track->ttc_data_array.frame_id_history[0] == frame_id) &&
-        (ttc_track->ttc_data_array.track_id_history[0] == track_id);
-
-    if (!already_updated)
-    {
-        memset(&ttc_data, 0, sizeof(ttc_data));
-        ttc_data.frame_id = frame_id;
-        ttc_data.track_id = track_id;
-
-        calculate_height(
-            (vx_float32)car->pixel_box.ymin,
-            (vx_float32)car->pixel_box.ymax,
-            &ttc_data
-        );
-
-        /*
-         * pixel_boxの高さを履歴へ入れる。
-         * FcwCar.height_pxと同じ座標系を使うため、ログ値とも一致する。
-         */
-        if (ttc_data.height > 0.0F)
+        if ((manager->tracks[i].active) &&
+            (manager->tracks[i].track_id == track_id))
         {
-            (void)ttc_update(
-                &ttc_data,
-                &ttc_track->ttc_data_array
-            );
+            return &manager->tracks[i];
         }
     }
-
-    car->history_length =
-        ttc_track->ttc_data_array.history_count;
-
-    /* 現在のcalculate_ttc()は10点固定なので、10点蓄積後に計算する */
-    if ((pre->context.config.fps > 0) &&
-        calculate_ttc(
-            pre->context.config.fps,
-            &ttc_track->ttc_data_array,
-            &ttc
-        ))
-    {
-        car->ttc_sec = ttc;
-        car->ttc_valid = true;
-    }
+    return NULL;
 }
 
-void fcw_main_pre_init(
-    FcwMainPreContext *pre,
-    const FcwConfig *config
-)
+void fcw_main_pre_config_set_defaults(FcwMainPreConfig *config)
 {
-    FcwConfig effective_config;
+    if (config == NULL) return;
 
-    if (pre == NULL)
-    {
-        return;
-    }
+    config->image_width = 1280;
+    config->image_height = 720;
+    config->fps = 30;
+    config->score_threshold = 0.0F;
+    config->car_class_id = 1;
+    config->tidl_bbox_is_normalized = vx_false_e;
+}
+
+void fcw_main_pre_init(FcwMainPreContext *pre, const FcwMainPreConfig *config)
+{
+    FcwMainPreConfig defaults;
+
+    if (pre == NULL) return;
 
     memset(pre, 0, sizeof(*pre));
-
-    if (config == NULL)
-    {
-        fcw_config_set_defaults(&effective_config);
-    }
-    else
-    {
-        effective_config = *config;
-    }
-
-    fcw_context_init(&pre->context, &effective_config);
-    fcw_frame_result_reset(&pre->frame_result, 0, 0.0F);
-    pre->frame_started = false;
+    fcw_main_pre_config_set_defaults(&defaults);
+    pre->config = (config == NULL) ? defaults : *config;
+    (void)fcw_frame_result_reset(&pre->frame_result, 0, 0.0F);
 }
 
 void fcw_main_pre_reset(FcwMainPreContext *pre)
 {
-    if (pre == NULL)
-    {
-        return;
-    }
+    if (pre == NULL) return;
 
-    fcw_context_reset(&pre->context);
-    fcw_frame_result_reset(&pre->frame_result, 0, 0.0F);
-    pre->frame_started = false;
+    memset(&pre->ttc_manager, 0, sizeof(pre->ttc_manager));
+    (void)fcw_frame_result_reset(&pre->frame_result, 0, 0.0F);
+    pre->frame_started = vx_false_e;
 }
 
-void fcw_main_pre_begin_frame(
-    FcwMainPreContext *pre,
-    vx_int32 frame_id
-)
+void fcw_main_pre_begin_frame(FcwMainPreContext *pre, vx_int32 frame_index)
 {
     vx_float32 time_s = 0.0F;
 
-    if (pre == NULL)
+    if (pre == NULL) return;
+    if (pre->config.fps > 0)
     {
-        return;
+        time_s = (vx_float32)frame_index / (vx_float32)pre->config.fps;
     }
-
-    if (pre->context.config.fps > 0)
-    {
-        time_s = frame_id / (vx_float32)pre->context.config.fps;
-    }
-
-    fcw_frame_result_reset(&pre->frame_result, frame_id, time_s);
-    pre->frame_started = true;
+    (void)fcw_frame_result_reset(&pre->frame_result, frame_index, time_s);
+    pre->frame_started = vx_true_e;
 }
 
 bool fcw_main_pre_add_tidl_object(
@@ -333,95 +96,70 @@ bool fcw_main_pre_add_tidl_object(
     const TIDL_ODLayerObjInfo *tidl_object
 )
 {
-    FcwCar candidate;
     FcwCar *car;
+    fcw_ttc_data_t ttc_data;
+    fcw_ttc_track_t *ttc_track;
+    vx_float32 xmin, ymin, xmax, ymax, swap, ttc_sec;
 
-    if ((pre == NULL) || (!pre->frame_started) || (tidl_object == NULL))
+    if ((pre == NULL) || (tidl_object == NULL) ||
+        (pre->frame_started != vx_true_e)) return false;
+    if (((vx_float32)tidl_object->score < pre->config.score_threshold) ||
+        ((vx_int32)tidl_object->label != pre->config.car_class_id)) return false;
+    if (fcw_frame_result_add_car(&pre->frame_result, &car) != VX_SUCCESS) return false;
+
+    xmin = fcw_main_pre_normalize((vx_float32)tidl_object->xmin,
+        pre->config.image_width, pre->config.tidl_bbox_is_normalized);
+    ymin = fcw_main_pre_normalize((vx_float32)tidl_object->ymin,
+        pre->config.image_height, pre->config.tidl_bbox_is_normalized);
+    xmax = fcw_main_pre_normalize((vx_float32)tidl_object->xmax,
+        pre->config.image_width, pre->config.tidl_bbox_is_normalized);
+    ymax = fcw_main_pre_normalize((vx_float32)tidl_object->ymax,
+        pre->config.image_height, pre->config.tidl_bbox_is_normalized);
+    if (xmin > xmax) { swap = xmin; xmin = xmax; xmax = swap; }
+    if (ymin > ymax) { swap = ymin; ymin = ymax; ymax = swap; }
+
+    car->box.xmin = fcw_main_pre_clamp(xmin, 0.0F, 1.0F);
+    car->box.ymin = fcw_main_pre_clamp(ymin, 0.0F, 1.0F);
+    car->box.xmax = fcw_main_pre_clamp(xmax, 0.0F, 1.0F);
+    car->box.ymax = fcw_main_pre_clamp(ymax, 0.0F, 1.0F);
+    car->score = (vx_float32)tidl_object->score;
+    car->class_id = (vx_int32)tidl_object->label;
+    car->channel = channel;
+    car->track_id = track_id;
+    car->track_valid = (track_id >= 0) ? vx_true_e : vx_false_e;
+
+    car->pixel_box.x1 = fcw_main_pre_to_pixel(car->box.xmin, pre->config.image_width);
+    car->pixel_box.y1 = fcw_main_pre_to_pixel(car->box.ymin, pre->config.image_height);
+    car->pixel_box.x2 = fcw_main_pre_to_pixel(car->box.xmax, pre->config.image_width);
+    car->pixel_box.y2 = fcw_main_pre_to_pixel(car->box.ymax, pre->config.image_height);
+    car->bottom_center.x = (car->pixel_box.x1 + car->pixel_box.x2) / 2;
+    car->bottom_center.y = car->pixel_box.y2;
+    car->height_px = (vx_float32)(car->pixel_box.y2 - car->pixel_box.y1);
+
+    if ((track_id < 0) || (car->height_px <= 0.0F)) return true;
+
+    memset(&ttc_data, 0, sizeof(ttc_data));
+    ttc_data.frame_id = pre->frame_result.frame_index;
+    ttc_data.track_id = track_id;
+    calculate_height((vx_float32)car->pixel_box.y1,
+                     (vx_float32)car->pixel_box.y2, &ttc_data);
+    if (!ttc_update(&ttc_data, &pre->ttc_manager)) return true;
+
+    ttc_track = fcw_main_pre_find_ttc_track(&pre->ttc_manager, track_id);
+    if (ttc_track != NULL)
     {
-        return false;
+        car->history_length = (vx_uint32)ttc_track->history.history_count;
     }
-
-    if ((vx_float32)tidl_object->score <
-        pre->context.config.score_threshold)
+    ttc_sec = 0.0F;
+    if (calculate_ttc(pre->config.fps, &pre->ttc_manager, track_id, &ttc_sec))
     {
-        return false;
+        car->ttc_sec = ttc_sec;
+        car->ttc_valid = vx_true_e;
     }
-
-    if ((vx_int32)tidl_object->label !=
-        pre->context.config.car_class_id)
-    {
-        return false;
-    }
-
-    if (!fcw_main_pre_fill_car(
-            &candidate,
-            &pre->context.config,
-            channel,
-            track_id,
-            tidl_object))
-    {
-        return false;
-    }
-
-    car = fcw_frame_result_add_car(&pre->frame_result);
-    if (car == NULL)
-    {
-        return false;
-    }
-
-    *car = candidate;
-
-    fcw_main_pre_update_ttc(
-        pre,
-        car,
-        pre->frame_result.frame_id,
-        channel,
-        track_id
-    );
-
     return true;
 }
 
-const FcwFrameResult *fcw_main_pre_get_frame_result(
-    const FcwMainPreContext *pre
-)
+const FcwFrameResult *fcw_main_pre_get_frame_result(const FcwMainPreContext *pre)
 {
-    if (pre == NULL)
-    {
-        return NULL;
-    }
-
-    return &pre->frame_result;
-}
-
-FcwTtcTrack *fcw_main_pre_get_ttc_track(
-    FcwMainPreContext *pre,
-    vx_int32 channel,
-    vx_int32 track_id
-)
-{
-    if (pre == NULL)
-    {
-        return NULL;
-    }
-
-    return fcw_ttc_get_or_create(
-        &pre->context.ttc,
-        channel,
-        track_id
-    );
-}
-
-void fcw_main_pre_remove_ttc_track(
-    FcwMainPreContext *pre,
-    vx_int32 channel,
-    vx_int32 track_id
-)
-{
-    if (pre == NULL)
-    {
-        return;
-    }
-
-    fcw_ttc_remove(&pre->context.ttc, channel, track_id);
+    return (pre == NULL) ? NULL : &pre->frame_result;
 }

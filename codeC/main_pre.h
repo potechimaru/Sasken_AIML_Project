@@ -1,19 +1,13 @@
-#ifndef FCW_MAIN_PRE_H
-#define FCW_MAIN_PRE_H
+#ifndef FCW_MAIN_PRE_H_
+#define FCW_MAIN_PRE_H_
 
-/*
- * 目的:
- * TIDLの1フレーム分の検出結果を、Notionで定義したFCWの共有データと
- * TTCのtrack_id別履歴へ変換するための公開インターフェース。
- *
- * このファイルを使うmain.c側では、TIDLテンソルをmapして得た
- * TIDL_ODLayerObjInfoをfcw_main_pre_add_tidl_object()へ渡すだけにする。
- */
+/* TIDL object-detectionの出力を現在フレーム用バッファへコピーするアダプタ。 */
 
 #include <stdbool.h>
 
 #include <VX/vx.h>
 
+#include "avp_fcw_ttc.h"
 #include "fcw_types.h"
 #include "itidl_ti.h"
 
@@ -23,30 +17,36 @@ extern "C" {
 
 typedef struct
 {
-    /* app_init()で一度初期化し、フレーム間で保持する状態 */
-    FcwContext context;
+    vx_int32 image_width;
+    vx_int32 image_height;
+    vx_int32 fps;
+    vx_float32 score_threshold;
+    vx_int32 car_class_id;
 
-    /* begin_frame()から次のbegin_frame()まで保持する現在フレーム結果 */
+    /* vx_true_e: TIDL bboxは0.0〜1.0、vx_false_e: ピクセル座標。 */
+    vx_bool tidl_bbox_is_normalized;
+} FcwMainPreConfig;
+
+typedef struct
+{
+    /* フレーム間で保持するTTC履歴。track_idは全channelで一意とする。 */
+    fcw_ttc_manager_t ttc_manager;
+
+    /* begin_frame()から次のbegin_frame()まで有効な一時出力。 */
     FcwFrameResult frame_result;
-    bool frame_started;
+    FcwMainPreConfig config;
+    vx_bool frame_started;
 } FcwMainPreContext;
 
-void fcw_main_pre_init(
-    FcwMainPreContext *pre,
-    const FcwConfig *config
-);
-
+void fcw_main_pre_config_set_defaults(FcwMainPreConfig *config);
+void fcw_main_pre_init(FcwMainPreContext *pre, const FcwMainPreConfig *config);
 void fcw_main_pre_reset(FcwMainPreContext *pre);
-
-void fcw_main_pre_begin_frame(
-    FcwMainPreContext *pre,
-    vx_int32 frame_id
-);
+void fcw_main_pre_begin_frame(FcwMainPreContext *pre, vx_int32 frame_index);
 
 /*
- * map中のTIDL_ODLayerObjInfoを1台分受け取り、
- * FcwCar、fcw_ttc_data_t、track_id別fcw_ttc_array_data_tを更新する。
- * track_idはTIDLのObjIdではなく、Trackerが割り当てた値を渡す。
+ * TIDL検出1件を現在フレームのcars[]にコピーする。
+ * track_idはtracker導入前なら-1を渡す。その場合TTC履歴は更新しない。
+ * car_class_id/score_thresholdを満たさない検出はfalseを返し保存しない。
  */
 bool fcw_main_pre_add_tidl_object(
     FcwMainPreContext *pre,
@@ -55,36 +55,12 @@ bool fcw_main_pre_add_tidl_object(
     const TIDL_ODLayerObjInfo *tidl_object
 );
 
-/*
- * main.c側の使用順序（このヘッダをincludeして呼び出すだけ）:
- *
- *   FcwMainPreContext fcw_pre;
- *   fcw_main_pre_init(&fcw_pre, NULL);       // app_init()で1回
- *   fcw_main_pre_begin_frame(&fcw_pre, frame_id);
- *   fcw_main_pre_add_tidl_object(&fcw_pre, ch, track_id, pObject);
- *
- * pObjectはTIDL tensorのmap中に渡す。track_idがまだ無い場合は、
- * 1台だけの動作確認に限って0を渡し、複数台ではTrackerのIDを渡す。
- */
-
 const FcwFrameResult *fcw_main_pre_get_frame_result(
     const FcwMainPreContext *pre
-);
-
-FcwTtcTrack *fcw_main_pre_get_ttc_track(
-    FcwMainPreContext *pre,
-    vx_int32 channel,
-    vx_int32 track_id
-);
-
-void fcw_main_pre_remove_ttc_track(
-    FcwMainPreContext *pre,
-    vx_int32 channel,
-    vx_int32 track_id
 );
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* FCW_MAIN_PRE_H */
+#endif /* FCW_MAIN_PRE_H_ */
