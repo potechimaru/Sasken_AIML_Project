@@ -1,5 +1,6 @@
 #include "avp_fcw_ttc.h"
 #include <stddef.h>
+#include "avp_fcw_types.h"
 
 
 /*bboxの座標と高さを計算する*/
@@ -209,7 +210,7 @@ bool calculate_ttc(
     vx_int32 fps,
     const fcw_ttc_manager_t *manager,
     vx_int32 track_id,
-    vx_float32 *ttc
+    FcwCar *car
 )
 {
     /*managerやmain内にttcがない場合false*/
@@ -366,7 +367,7 @@ bool calculate_ttc(
 
 
     /*最新の高さからTTCを計算*/
-    *ttc =
+    *car ->ttc_valid =
         -reverse_array_h[0] / d_inv_h_dt;
 
     return true;

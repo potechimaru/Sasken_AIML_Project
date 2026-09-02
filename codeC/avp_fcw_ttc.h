@@ -2,7 +2,7 @@
 #define FCW_TTC_H
 
 #include <stdbool.h>
-
+#include "fcw_types.h"
 #include <VX/vx.h>
 
 #define FCW_TTC_HISTORY_SIZE 10
@@ -55,7 +55,7 @@ bool calculate_ttc(
     vx_int32 fps,
     const fcw_ttc_manager_t *manager,
     vx_int32 track_id,
-    vx_float32 *ttc
+    FcwCar *car
 );
 
 #endif /* FCW_TTC_H */
