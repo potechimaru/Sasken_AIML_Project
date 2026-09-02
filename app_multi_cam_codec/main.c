@@ -104,7 +104,9 @@
 #define CAPTURE_PIPELINE_DEPTH   (5)
 #define DISPLAY_PIPELINE_DEPTH   (2)
 
-// #define DEC_WRITE_TO_FILE
+// hennkou8 commentin define
+//#define DEC_WRITE_TO_FILE
+// hennkou8
 
 typedef struct {
 
@@ -2382,7 +2384,9 @@ static void construct_gst_strings(app_codec_wrapper_params_t* params, uint8_t sr
             i += snprintf(&params->m_cmdString[i], CODEC_MAX_LEN_CMD_STR-i,"! v4l2h264enc extra-controls=\"controls, frame_level_rate_control_enable=1, video_bitrate=10000000\"\n");
         }
         else if (srcType == 1){
-            i += snprintf(&params->m_cmdString[i], CODEC_MAX_LEN_CMD_STR-i,"multifilesrc location=/opt/vision_apps/test_data/psdkra/app_multi_cam_codec/test_video_1080p30.264 \n");
+// multifilesrc change
+// hennkou3
+            i += snprintf(&params->m_cmdString[i], CODEC_MAX_LEN_CMD_STR-i,"filesrc location=/opt/vision_apps/test_data/psdkra/app_multi_cam_codec/02_fcw_fixed.h264 \n");
         }
         else if (srcType == 2){
             i += snprintf(&params->m_cmdString[i], CODEC_MAX_LEN_CMD_STR-i,"videotestsrc is-live=true do-timestamp=true num-buffers=%d \n",1800);
@@ -2392,6 +2396,15 @@ static void construct_gst_strings(app_codec_wrapper_params_t* params, uint8_t sr
         }
 
         i += snprintf(&params->m_cmdString[i], CODEC_MAX_LEN_CMD_STR-i,"! h264parse \n");
+        
+        // hennkou4
+      /*  i += snprintf(&params->m_cmdString[i],
+              CODEC_MAX_LEN_CMD_STR-i,
+              "! video/x-h264, "
+              "stream-format=(string)byte-stream, "
+              "alignment=(string)au, "
+              "framerate=(fraction)25/1 \n"); */
+        // hennkou4
 
         if (sinkType == 0){
             snprintf(params->m_AppSinkNameArr[ch], CODEC_MAX_LEN_ELEM_NAME, "myAppSink%d", ch);
@@ -2417,7 +2430,11 @@ static void construct_gst_strings(app_codec_wrapper_params_t* params, uint8_t sr
             i += snprintf(&params->m_cmdString[i], CODEC_MAX_LEN_CMD_STR-i,"! v4l2h264dec \n");
             i += snprintf(&params->m_cmdString[i], CODEC_MAX_LEN_CMD_STR-i,"! video/x-raw, format=(string)%s \n",
                                                                                         params->out_format);
-            i += snprintf(&params->m_cmdString[i], CODEC_MAX_LEN_CMD_STR-i,"! tiovxmemalloc pool-size=7 \n");
+//hennkou6    
+//size7->size16                                                                                   
+            i += snprintf(&params->m_cmdString[i], CODEC_MAX_LEN_CMD_STR-i,"! tiovxmemalloc pool-size=16 \n");
+            //hennkou6
+            
             i += snprintf(&params->m_cmdString[i], CODEC_MAX_LEN_CMD_STR-i,"! appsink name=%s drop=true wait-on-eos=false max-buffers=4\n",params->m_AppSinkNameArr[ch]);
         }
     }
@@ -2436,6 +2453,10 @@ static void set_codec_pipe_params(AppObj *obj)
 
     if (obj->encode==0) srcType = 1;
     if (obj->decode==0) sinkType = 1;
+    //hennkou5
+    if ((obj->encode==0) && (obj->decode==1)) sinkType = 3;
+    //hennkou5
+    
 #endif /* LINUX */
 
     codec_pipe_params->in_width        = enc_pool->width;
@@ -2460,7 +2481,26 @@ static void app_update_param_set(AppObj *obj)
 {
 
     vx_uint16 resized_width, resized_height;
-    appIssGetResizeParams(obj->sensorObj.image_width, obj->sensorObj.image_height, DISPLAY_WIDTH, DISPLAY_HEIGHT, &resized_width, &resized_height);
+// hennkou1
+    
+    
+    if ((obj->encode == 0) && (obj->decode == 1))
+	{
+	    resized_width = 1280;
+	    resized_height = 720;
+	}
+	else
+	{
+	    appIssGetResizeParams(
+	        obj->sensorObj.image_width,
+	        obj->sensorObj.image_height,
+	        DISPLAY_WIDTH,
+	        DISPLAY_HEIGHT,
+	        &resized_width,
+	        &resized_height);
+	}
+
+// hennkou1
 
     /* Don't allow downscaling to 720p if single channel */
     if (obj->sensorObj.num_cameras_enabled == 1)
@@ -2479,14 +2519,30 @@ static void app_update_param_set(AppObj *obj)
         obj->dec_pool.height = 720;
     }
 #if defined(SOC_J721E)
-    else
+
+//hennkou2
+        else
     {
-        /* decoder outputs 16 byte alligned buffers */
-        obj->dec_pool.height = 1088;
+        if ((obj->encode == 0) && (obj->decode == 1))
+        {
+            obj->dec_pool.width = 1280;
+            obj->dec_pool.height = 720;
+            //obj->dec_pool.height = 768;   /* decoder outputs 64 byte aligned buffers */
+        }
+        else
+        {
+            /* decoder outputs 16 byte aligned buffers */
+            obj->dec_pool.height = 1088;
+        }
+
+
+
     #if defined(QNX)
         obj->enc_pool.height = 1088;
     #endif /* QNX */
     }
+    
+//hennkou2
 #endif /* SOC_J721E */
 #if defined(QNX) && !defined(SOC_J721E)
     else
