@@ -3,7 +3,10 @@
 
 #include <stdbool.h>
 
+#include <VX/vx.h>
+
 #define FCW_TTC_HISTORY_SIZE 10
+#define FCW_TTC_MAX_TRACKS   32
 
 /*SSDなどで取得したデータを入れる*/
 typedef struct {
@@ -29,6 +32,20 @@ typedef struct {
 
 } fcw_ttc_array_data_t;
 
+/*
+ * TTC履歴をtrack_idごとに保持する管理構造体。
+ * avp_fcw_ttc.c の ttc_update() / calculate_ttc() が使用する。
+ */
+typedef struct {
+    bool active;
+    vx_int32 track_id;
+    fcw_ttc_array_data_t history;
+} fcw_ttc_track_t;
+
+typedef struct {
+    fcw_ttc_track_t tracks[FCW_TTC_MAX_TRACKS];
+} fcw_ttc_manager_t;
+
 
 void calculate_height(
     // vx_float32 x_mini,
@@ -41,13 +58,14 @@ void calculate_height(
 
 bool ttc_update(
     const fcw_ttc_data_t *ttc_data,
-    fcw_ttc_array_data_t *ttc_array_data
+    fcw_ttc_manager_t *manager
 );
 
 
 bool calculate_ttc(
     vx_int32 fps,
-    const fcw_ttc_array_data_t *ttc_array_data,
+    const fcw_ttc_manager_t *manager,
+    vx_int32 track_id,
     vx_float32 *ttc
 );
 
