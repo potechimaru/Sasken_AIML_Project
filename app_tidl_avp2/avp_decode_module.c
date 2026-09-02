@@ -11,19 +11,11 @@ vx_status avp_decode_h264_next_frame(
     const uint8_t **nv12_data,
     size_t *nv12_size,
     uint32_t *width,
-    uint32_t *height,
-    vx_bool repair_enable);
-
-void avp_decode_repair_nv12_frame(
-    uint8_t *output,
-    const uint8_t *previous,
-    const uint8_t *current,
-    const uint8_t *next,
-    size_t frame_size,
-    vx_bool current_valid);
+    uint32_t *height);
 
 void avp_decode_release(AvpDecodeContext **context);
-// ここまでの3つの関数がmain.cから呼び出す公開関数
+// ここまでの2つの関数がmain.cから呼び出す公開関数
+// avp_decode_h264_next_frameは1回の呼び出しにつき1フレームのデコードを行う
 
 #if defined(LINUX)
 
@@ -38,15 +30,10 @@ struct AvpDecodeContext
     char h264_path[APP_MAX_FILE_PATH];
 
     uint8_t *working_frame;
-    uint8_t *previous_frame;
-    uint8_t *pending_frame;
-    uint8_t *output_frame;
     size_t frame_size;
 
     uint32_t width;
     uint32_t height;
-    vx_bool have_previous;
-    vx_bool pending_valid;
 };
 
 /*
@@ -111,14 +98,8 @@ static void avp_decode_print_bus_error(AvpDecodeContext *context)
 static void avp_decode_free_buffers(AvpDecodeContext *context)
 {
     free(context->working_frame);
-    free(context->previous_frame);
-    free(context->pending_frame);
-    free(context->output_frame);
 
     context->working_frame = NULL;
-    context->previous_frame = NULL;
-    context->pending_frame = NULL;
-    context->output_frame = NULL;
     context->frame_size = 0;
 }
 
@@ -150,14 +131,8 @@ static vx_status avp_decode_allocate_buffers(AvpDecodeContext *context,
     avp_decode_free_buffers(context);
 
     context->working_frame = (uint8_t *)malloc(frame_size);
-    context->previous_frame = (uint8_t *)malloc(frame_size);
-    context->pending_frame = (uint8_t *)malloc(frame_size);
-    context->output_frame = (uint8_t *)malloc(frame_size);
 
-    if((context->working_frame == NULL) ||
-       (context->previous_frame == NULL) ||
-       (context->pending_frame == NULL) ||
-       (context->output_frame == NULL))
+    if(context->working_frame == NULL)
     {
         printf("avp_decode: unable to allocate %zu bytes per frame buffer\n", frame_size);
         avp_decode_free_buffers(context);
@@ -167,8 +142,6 @@ static vx_status avp_decode_allocate_buffers(AvpDecodeContext *context,
     context->frame_size = frame_size;
     context->width = width;
     context->height = height;
-    context->have_previous = vx_false_e;
-    context->pending_valid = vx_false_e;
 
     return VX_SUCCESS;
 }
@@ -206,6 +179,8 @@ static vx_status avp_decode_update_layout(AvpDecodeContext *context,
         return VX_FAILURE;
     }
 
+    // 入力したh264動画のwidthとheightを取得する（hennkou1の内容）
+    // 同じwidthとheightを使用して、内部バッファを確保する（hennkou2の内容）
     if(!gst_structure_get_int(structure, "width", &width) ||
        !gst_structure_get_int(structure, "height", &height))
     {
@@ -301,8 +276,11 @@ static vx_status avp_decode_create_pipeline(AvpDecodeContext *context,
     GstCaps *raw_caps;
     GstStateChangeReturn state_result;
 
+    // multifilesrcではなくfilesrcを使用する（hennkou3の内容）
     source = gst_element_factory_make("filesrc", "avp_h264_source");
     parser = gst_element_factory_make("h264parse", "avp_h264_parser");
+
+    // v4l2h264decを使用する（hennkou5の内容）(sinkType ==3)
     decoder = gst_element_factory_make("v4l2h264dec", "avp_h264_decoder");
     caps_filter = gst_element_factory_make("capsfilter", "avp_nv12_filter");
     context->appsink = GST_APP_SINK(gst_element_factory_make("appsink", "avp_nv12_sink"));
@@ -391,66 +369,23 @@ static vx_status avp_decode_pull_sample(AvpDecodeContext *context,
 }
 
 /*
- * 公開関数：NV12フレームを修復または補間する。
- * outputは書き込み先、previous/current/nextはフレームデータ、
- * frame_sizeは各フレームのバイト数、current_validはcurrentの有効性を表す。
- */
-void avp_decode_repair_nv12_frame(uint8_t *output,
-                                  const uint8_t *previous,
-                                  const uint8_t *current,
-                                  const uint8_t *next,
-                                  size_t frame_size,
-                                  vx_bool current_valid)
-{
-    size_t i;
-
-    if(current_valid && (current != NULL))
-    {
-        memcpy(output, current, frame_size);
-    }
-    else if((previous != NULL) && (next != NULL))
-    {
-        for(i = 0u; i < frame_size; i++)
-        {
-            output[i] = (uint8_t)(((uint16_t)previous[i] +
-                                   (uint16_t)next[i] + 1u) / 2u);
-        }
-    }
-    else if(previous != NULL)
-    {
-        memcpy(output, previous, frame_size);
-    }
-    else if(next != NULL)
-    {
-        memcpy(output, next, frame_size);
-    }
-    else
-    {
-        memset(output, 0, frame_size);
-    }
-}
-
-/*
  * 公開関数：H.264ファイルから次の1フレームをデコードし、NV12データを返す。
  * context_ptrは状態保持用、h264_pathは入力ファイル、nv12_data/nv12_size/
- * width/heightは出力値、repair_enableは破損フレーム修復のON/OFFである。
+ * width/heightは出力値。
  */
 vx_status avp_decode_h264_next_frame(AvpDecodeContext **context_ptr,
                                      const char *h264_path,
                                      const uint8_t **nv12_data,
                                      size_t *nv12_size,
                                      uint32_t *width,
-                                     uint32_t *height,
-                                     vx_bool repair_enable)
+                                     uint32_t *height)
 {
     AvpDecodeContext *context;
     GstSample *sample = NULL;
-    GstSample *next_sample = NULL;
     GstBuffer *buffer;
-    GstBuffer *next_buffer;
-    vx_bool current_valid;
     vx_status status;
 
+    // どのポインタが無くても弾く（NULLチェック）
     if((context_ptr == NULL) || (h264_path == NULL) ||
        (nv12_data == NULL) || (nv12_size == NULL) ||
        (width == NULL) || (height == NULL))
@@ -492,113 +427,33 @@ vx_status avp_decode_h264_next_frame(AvpDecodeContext **context_ptr,
         }
     }
 
-    if(context->pending_valid)
+    status = avp_decode_pull_sample(context, &sample);
+    if(status != VX_SUCCESS)
     {
-        avp_decode_repair_nv12_frame(context->output_frame,
-                                     context->previous_frame,
-                                     context->pending_frame,
-                                     NULL,
-                                     context->frame_size,
-                                     vx_true_e);
-        memcpy(context->previous_frame, context->pending_frame, context->frame_size);
-        context->have_previous = vx_true_e;
-        context->pending_valid = vx_false_e;
+        return status;
     }
-    else
+
+    buffer = gst_sample_get_buffer(sample);
+    if(buffer == NULL)
     {
-        status = avp_decode_pull_sample(context, &sample);
-        if(status != VX_SUCCESS)
-        {
-            return status;
-        }
-
-        buffer = gst_sample_get_buffer(sample);
-        if(buffer == NULL)
-        {
-            printf("avp_decode: sample has no buffer\n");
-            gst_sample_unref(sample);
-            return VX_FAILURE;
-        }
-
-        status = avp_decode_update_layout(context, sample, buffer);
-        if(status == VX_SUCCESS)
-        {
-            status = avp_decode_copy_buffer_to_nv12(context, buffer,
-                                                     context->working_frame);
-        }
-        if(status != VX_SUCCESS)
-        {
-            gst_sample_unref(sample);
-            return status;
-        }
-
-        current_valid = !GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_CORRUPTED);
-
-        if(!current_valid && !repair_enable)
-        {
-            printf("avp_decode: decoded buffer is marked corrupted and repair is disabled\n");
-            gst_sample_unref(sample);
-            return VX_FAILURE;
-        }
-
-        if(current_valid)
-        {
-            avp_decode_repair_nv12_frame(context->output_frame,
-                                         context->previous_frame,
-                                         context->working_frame,
-                                         NULL,
-                                         context->frame_size,
-                                         vx_true_e);
-            memcpy(context->previous_frame, context->working_frame, context->frame_size);
-            context->have_previous = vx_true_e;
-        }
-        else
-        {
-            /* Try to keep the following good frame for interpolation. */
-            status = avp_decode_pull_sample(context, &next_sample);
-            if(status == VX_SUCCESS)
-            {
-                next_buffer = gst_sample_get_buffer(next_sample);
-                if((next_buffer != NULL) &&
-                   (avp_decode_copy_buffer_to_nv12(context, next_buffer,
-                                                   context->pending_frame) == VX_SUCCESS) &&
-                   !GST_BUFFER_FLAG_IS_SET(next_buffer, GST_BUFFER_FLAG_CORRUPTED))
-                {
-                    context->pending_valid = vx_true_e;
-                    avp_decode_repair_nv12_frame(context->output_frame,
-                                                 context->have_previous ? context->previous_frame : NULL,
-                                                 NULL,
-                                                 context->pending_frame,
-                                                 context->frame_size,
-                                                 vx_false_e);
-                }
-                else
-                {
-                    avp_decode_repair_nv12_frame(context->output_frame,
-                                                 context->have_previous ? context->previous_frame : NULL,
-                                                 NULL,
-                                                 NULL,
-                                                 context->frame_size,
-                                                 vx_false_e);
-                    context->pending_valid = vx_false_e;
-                }
-                gst_sample_unref(next_sample);
-            }
-            else
-            {
-                avp_decode_repair_nv12_frame(context->output_frame,
-                                             context->have_previous ? context->previous_frame : NULL,
-                                             NULL,
-                                             NULL,
-                                             context->frame_size,
-                                             vx_false_e);
-            }
-        }
-
+        printf("avp_decode: sample has no buffer\n");
         gst_sample_unref(sample);
+        return VX_FAILURE;
     }
 
-    *nv12_data = context->output_frame;
+    status = avp_decode_update_layout(context, sample, buffer);
+    if(status == VX_SUCCESS)
+    {
+        status = avp_decode_copy_buffer_to_nv12(context, buffer,
+                                                 context->working_frame);
+    }
+    gst_sample_unref(sample);
+    if(status != VX_SUCCESS)
+    {
+        return status;
+    }
+
+    *nv12_data = context->working_frame;
     *nv12_size = context->frame_size;
     *width = context->width;
     *height = context->height;
@@ -636,32 +491,12 @@ struct AvpDecodeContext
     int unused;
 };
 
-void avp_decode_repair_nv12_frame(uint8_t *output,
-                                  const uint8_t *previous,
-                                  const uint8_t *current,
-                                  const uint8_t *next,
-                                  size_t frame_size,
-                                  vx_bool current_valid)
-{
-    (void)previous;
-    (void)next;
-    if(current_valid && (current != NULL))
-    {
-        memcpy(output, current, frame_size);
-    }
-    else
-    {
-        memset(output, 0, frame_size);
-    }
-}
-
 vx_status avp_decode_h264_next_frame(AvpDecodeContext **context,
                                      const char *h264_path,
                                      const uint8_t **nv12_data,
                                      size_t *nv12_size,
                                      uint32_t *width,
-                                     uint32_t *height,
-                                     vx_bool repair_enable)
+                                     uint32_t *height)
 {
     (void)context;
     (void)h264_path;
@@ -669,7 +504,6 @@ vx_status avp_decode_h264_next_frame(AvpDecodeContext **context,
     (void)nv12_size;
     (void)width;
     (void)height;
-    (void)repair_enable;
     printf("avp_decode: H.264 GStreamer decoder is supported only on Linux\n");
     return VX_FAILURE;
 }
