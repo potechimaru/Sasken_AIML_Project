@@ -8,7 +8,6 @@ vx_status fcw_frame_result_reset(FcwFrameResult *result, vx_int32 frame_index)
     {
         return VX_ERROR_INVALID_PARAMETERS;
     }
-
     memset(result, 0, sizeof(*result));
     result->frame_index = frame_index;
     return VX_SUCCESS;
@@ -22,7 +21,6 @@ vx_status fcw_frame_result_add_car(FcwFrameResult *result, FcwCar **car)
     {
         return VX_ERROR_INVALID_PARAMETERS;
     }
-
     *car = NULL;
     if (result->num_cars >= FCW_MAX_DETECTIONS)
     {
@@ -32,6 +30,9 @@ vx_status fcw_frame_result_add_car(FcwFrameResult *result, FcwCar **car)
 
     new_car = &result->cars[result->num_cars];
     memset(new_car, 0, sizeof(*new_car));
+    new_car->track_id = -1;
+    new_car->roi_valid = vx_false_e;
+    new_car->ttc_valid = vx_false_e;
     result->num_cars++;
     *car = new_car;
     return VX_SUCCESS;
