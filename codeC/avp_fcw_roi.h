@@ -10,9 +10,10 @@ extern "C" {
 #endif
 
 
-/* 車両BBoxの下辺中央がROI内か判定する */
+/* 車両BBoxの下辺中央がROI内か判定し、
+   結果をcar->roi_validへ保存する */
 vx_bool fcw_roi_check_car(
-    const FcwCar *car
+    FcwCar *car
 );
 
 
