@@ -28,7 +28,7 @@ typedef struct {
     // vx_float32 array_center_y[FCW_TTC_HISTORY_SIZE];
     vx_float32 array_height[FCW_TTC_HISTORY_SIZE];
 
-    int history_count;
+    vx_int history_count;
 
 } fcw_ttc_array_data_t;
 
@@ -37,7 +37,7 @@ typedef struct {
  * avp_fcw_ttc.c の ttc_update() / calculate_ttc() が使用する。
  */
 typedef struct {
-    bool active;
+    vx_bool active;
     vx_int32 track_id;
     fcw_ttc_array_data_t history;
 } fcw_ttc_track_t;
