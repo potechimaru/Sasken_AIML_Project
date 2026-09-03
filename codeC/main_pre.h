@@ -1,61 +1,32 @@
 #ifndef FCW_MAIN_PRE_H_
 #define FCW_MAIN_PRE_H_
-
-/* main.cから呼ぶTIDL検出→ROI→TTCのアダプタ。 */
-
-#include <VX/vx.h>
-
+#include "fcw_alert.h"
+#include "fcw_alarm.h"
+#include "fcw_tidl_adapter.h"
+#include "fcw_tracker.h"
+#include "fcw_ttc.h"
 #include "avp_fcw_roi.h"
-#include "avp_fcw_ttc.h"
-#include "fcw_types.h"
-#include "itidl_ti.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-typedef struct
-{
-    vx_float32 score_threshold;
-    vx_int32 car_class_id;
-    vx_int32 fps;
-    vx_int32 ttc_channel;
-    vx_int32 image_width;
-    vx_int32 image_height;
-    vx_bool tidl_bbox_is_normalized;
-} FcwMainPreConfig;
-
-typedef struct
-{
-    FcwMainPreConfig config;
-    FcwFrameResult frame_result;
-    fcw_ttc_manager_t ttc_manager;
-    vx_bool frame_started;
-} FcwMainPreContext;
-
+typedef struct {vx_float32 score_threshold;vx_int32 car_class_id,fps;vx_uint32 ttc_channel;vx_float32 tracker_iou_threshold;vx_uint32 tracker_max_missed_frames;vx_float32 alert_on_ttc_sec,alert_off_ttc_sec;vx_uint32 alert_required_count;} FcwMainPreConfig;
+typedef struct {FcwMainPreConfig config;FcwFrameResult frame_result;FcwTrackerContext tracker;fcw_ttc_manager_t ttc_manager;FcwAlertController alert_controller;FcwAlarmContext alarm;} FcwMainPreContext;
 void fcw_main_pre_config_set_defaults(FcwMainPreConfig *config);
-void fcw_main_pre_init(FcwMainPreContext *pre, const FcwMainPreConfig *config);
-void fcw_main_pre_reset(FcwMainPreContext *pre);
-void fcw_main_pre_begin_frame(FcwMainPreContext *pre, vx_int32 frame_index);
+vx_status fcw_main_pre_init(FcwMainPreContext *context,const FcwMainPreConfig *config,FcwAlarmOutputFunc output,void *user);
+void fcw_main_pre_deinit(FcwMainPreContext *context);
+vx_status fcw_main_pre_begin_frame(FcwMainPreContext *context,vx_int32 frame_index);
+vx_status fcw_main_pre_add_detection(FcwMainPreContext *context,const FcwDetection *detection);
+vx_status fcw_main_pre_add_tidl_channel(FcwMainPreContext *context,const sTIDL_IOBufDesc_t *io,vx_object_array output,vx_uint32 channel);
+vx_status fcw_main_pre_finalize_frame(FcwMainPreContext *context);
 
 /*
- * TIDL検出1件を正規化して保存し、ROIを判定する。
- * track_idはtrackerが割り当てた全channelで一意なIDを渡す。tracker未接続なら-1。
- * ROI内、指定channel、track_id>=0 のときのみTTC履歴・TTCを更新する。
+ * main.c用の1フレーム統合入口。
+ * TIDL outputを全channelから取り込み、ROI → tracker → TTC → alert → alarm
+ * を順に実行する。alarm出力は init() で指定したcallbackへ通知される。
  */
-vx_bool fcw_main_pre_add_tidl_object(
-    FcwMainPreContext *pre,
-    vx_int32 channel,
-    vx_int32 track_id,
-    const TIDL_ODLayerObjInfo *tidl_object
+vx_status fcw_main_pre_process_tidl_frame(
+    FcwMainPreContext *context,
+    const sTIDL_IOBufDesc_t *io,
+    vx_object_array output,
+    vx_uint32 num_channels,
+    vx_int32 frame_index
 );
-
-const FcwFrameResult *fcw_main_pre_get_frame_result(
-    const FcwMainPreContext *pre
-);
-
-#ifdef __cplusplus
-}
+const FcwFrameResult *fcw_main_pre_get_frame_result(const FcwMainPreContext *context);
 #endif
-
-#endif /* FCW_MAIN_PRE_H_ */

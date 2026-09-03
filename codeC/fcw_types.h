@@ -1,75 +1,52 @@
 #ifndef FCW_TYPES_H_
 #define FCW_TYPES_H_
 
-#include "avp_common.h"
+#include <VX/vx.h>
 
+#define FCW_MAX_DETECTIONS (100U)
+#define FCW_MAX_TRACKS (128U)
 
-#define FCW_MAX_DETECTIONS   (100u)
-#define FCW_MAX_TRACKS       (128u)
-#define FCW_MAX_ROI_POINTS   (8u)
-#define FCW_TTC_MAX_HISTORY  (16u)
+/* All FCW modules use this normalized bbox: [ymin, xmin, ymax, xmax]. */
+typedef struct { vx_float32 ymin, xmin, ymax, xmax; } FcwBox;
 
-
-/* Bounding box in normalized coordinates: [ymin, xmin, ymax, xmax]. */
 typedef struct
 {
-    vx_float32 ymin;
-    vx_float32 xmin;
-    vx_float32 ymax;
-    vx_float32 xmax;
-
-} FcwBox;
-
-
-/* One detection converted from the TIDL OD output. */
-typedef struct
-{
-    FcwBox    box;
+    FcwBox box;
     vx_float32 score;
-    vx_int32  class_id;
-    vx_int32  object_id;
-
+    vx_int32 class_id;
+    vx_int32 object_id;
+    vx_uint32 channel;
 } FcwDetection;
 
-
-/* Shared car information used by the later FCW modules. */
+/* One current-frame FCW candidate. Fields below are the module hand-off. */
 typedef struct
 {
-    FcwBox    box;
-
+    FcwBox box;
     vx_float32 score;
-    vx_int32  class_id;
-    vx_int32  object_id;
+    vx_int32 class_id;
+    vx_int32 object_id;
+    vx_uint32 channel;
 
-    vx_int32  x1;
-    vx_int32  y1;
-    vx_int32  x2;
-    vx_int32  y2;
-
-    vx_int32  bottom_center_x;
-    vx_int32  bottom_center_y;
-    vx_float32 height_px;
-
-    vx_int32  track_id;
+    vx_bool roi_valid;
+    vx_int32 track_id;
     vx_float32 iou;
 
-
-    vx_float32 ttc;
-    vx_bool    ttc_valid;
-
     vx_uint32 history_length;
-    vx_bool   alert;
-
+    vx_float32 ttc_sec;
+    vx_bool ttc_valid;
+    vx_bool alert;
 } FcwCar;
-
 
 typedef struct
 {
-    vx_int32  frame_index;
+    vx_int32 frame_index;
     vx_uint32 num_cars;
-    vx_bool   any_alert;
-    FcwCar    cars[FCW_MAX_DETECTIONS];
-
+    vx_uint32 dropped_cars;
+    vx_bool any_alert;
+    FcwCar cars[FCW_MAX_DETECTIONS];
 } FcwFrameResult;
 
-#endif
+vx_status fcw_frame_result_reset(FcwFrameResult *result, vx_int32 frame_index);
+vx_status fcw_frame_result_add_car(FcwFrameResult *result, FcwCar **car);
+
+#endif /* FCW_TYPES_H_ */

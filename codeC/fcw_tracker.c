@@ -1,4 +1,5 @@
 #include "fcw_tracker.h"
+#include <string.h>
 
 
 static vx_int32 fcw_tracker_find_free_index(

@@ -9,12 +9,14 @@
  */
 static void fcw_tidl_adapter_copy_object(
     const TIDL_ODLayerObjInfo *object,
+    vx_uint32 channel,
     FcwDetection *detection
 )
 {
     detection->object_id = (vx_int32)object->ObjId;
     detection->class_id = (vx_int32)object->label;
     detection->score = (vx_float32)object->score;
+    detection->channel = channel;
 
     /* TIDL OD 2D coordinates are normalized coordinates. */
     detection->box.xmin = (vx_float32)object->xmin;
@@ -225,6 +227,7 @@ vx_status fcw_tidl_adapter_extract(
 
         fcw_tidl_adapter_copy_object(
             object,
+            channel,
             &detections[*num_detections]
         );
 

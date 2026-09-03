@@ -1,4 +1,5 @@
 #include "fcw_alarm.h"
+#include <string.h>
 
 
 /*

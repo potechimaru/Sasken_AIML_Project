@@ -1,7 +1,6 @@
 #ifndef FCW_ALERT_H_
 #define FCW_ALERT_H_
 
-#include "avp_common.h"
 #include "fcw_types.h"
 
 #define FCW_ALERT_MAX_TRACKS (128u)
