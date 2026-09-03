@@ -1,5 +1,7 @@
 #include "fcw_alert.h"
 
+#include <string.h>
+
 static FcwAlertTrackState *find_state(
     FcwAlertController *controller,
     vx_int32 track_id,
