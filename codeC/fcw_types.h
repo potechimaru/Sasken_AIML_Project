@@ -53,14 +53,9 @@ typedef struct
     vx_int32  track_id;
     vx_float32 iou;
 
-    vx_float32 dh_dt;
-    vx_bool    dh_dt_valid;
 
     vx_float32 ttc;
     vx_bool    ttc_valid;
-
-    vx_float32 r_squared;
-    vx_bool    r_squared_valid;
 
     vx_uint32 history_length;
     vx_bool   alert;
