@@ -1,0 +1,4 @@
+検出数    : pHeader->numDetObjects
+信頼度    : pPSpots->score
+クラスID  : pPSpots->label
+キーポイント : kp_tensor_arr

@@ -68,6 +68,7 @@ vx_status app_init_scaler(vx_context context, ScalerObj *scalerObj, char *objNam
 
     tivx_vpac_msc_coefficients_t coeffs;
 
+    /*1280*720の入力を768*384の出力に変換*/
     vx_image input   = vxCreateImage(context, scalerObj->input.width, scalerObj->input.height, VX_DF_IMAGE_NV12);
     vx_image output  = vxCreateImage(context, scalerObj->output.width, scalerObj->output.height, VX_DF_IMAGE_NV12);
 
@@ -141,6 +142,7 @@ vx_status app_create_graph_scaler(vx_context context, vx_graph graph, ScalerObj 
     return status;
 }
 
+/*YUVファイルから画像読み込み*/
 vx_status readScalerInput(char* file_name, vx_object_array img_arr, int32_t ch_num)
 {
     vx_status status;
@@ -251,6 +253,7 @@ vx_status readScalerInput(char* file_name, vx_object_array img_arr, int32_t ch_n
     return(status);
 }
 
+/*Scaler出力画像をYUVファイルへ書き込み*/
 vx_status writeScalerOutput(char* file_name, vx_object_array img_arr)
 {
     vx_status status;

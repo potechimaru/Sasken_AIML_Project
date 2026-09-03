@@ -81,6 +81,13 @@
 #include "avp_display_module.h"
 #include "avp_test.h"
 
+//追加
+#include "../codeC/main_pre.h"
+
+#define FCW_FRONT_CHANNEL (0u)
+#define FCW_VIDEO_FPS     (25.0F)
+//ここまで
+
 #ifndef x86_64
 #define AVP_ENABLE_PIPELINE_FLOW
 #endif
@@ -152,6 +159,11 @@ typedef struct {
     int32_t enqueueCnt;
     int32_t dequeueCnt;
 
+    //追加
+    /* FCW追加部分 */
+    FcwMainPreContext fcw;
+    vx_bool fcw_initialized;
+    //ここまで
 } AppObj;
 
 AppObj gAppObj;
@@ -191,6 +203,11 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
 #else
 static vx_status app_run_graph_for_one_frame_sequential(AppObj *obj, vx_int32 frame_id);
 #endif
+
+//追加
+static vx_status app_run_fcw_for_frame(AppObj  *obj, vx_int32 frame_id);
+static void app_fcw_alarm_output(vx_bool active, void *user_data);
+//ここまで
 
 static void app_show_usage(vx_int32 argc, vx_char* argv[])
 {
@@ -948,11 +965,66 @@ static vx_status fill_background_image(vx_image background)
     return (status);
 }
 
+//追加
+static vx_status app_run_fcw_for_frame(
+    AppObj  *obj,
+    vx_int32 frame_id)
+{
+    vx_status status;
+
+    if (obj == NULL)
+    {
+        return VX_ERROR_INVALID_PARAMETERS;
+    }
+
+    if (obj->enable_vd != 1)
+    {
+        return VX_SUCCESS;
+    }
+
+    if (obj->fcw_initialized != vx_true_e)
+    {
+        return VX_FAILURE;
+    }
+
+    /* TIDL出力を取り込み、FCWの一連の処理を実行する。 */
+    status = fcw_main_pre_process_tidl_frame(
+        &obj->fcw,
+        &obj->odPostProcObj.ioBufDesc,
+        obj->odTIDLObj.output1_tensor_arr,
+        NUM_CH,
+        frame_id);
+
+    if (status != VX_SUCCESS)
+    {
+        printf("[FCW] Processing failed. frame=%d\n",
+               frame_id);
+        return status;
+    }
+
+    printf("[FCW] frame=%d, fcw_cars=%u, alarm=%d\n", frame_id,
+           obj->fcw.frame_result.num_cars, obj->fcw.frame_result.any_alert);
+
+    return VX_SUCCESS;
+}
+
+static void app_fcw_alarm_output(vx_bool active, void *user_data)
+{
+    (void)user_data;
+    printf("[FCW] ALARM_%s\n", active == vx_true_e ? "ON" : "OFF");
+}
+//ここまで
+
 /*Open VXコンテキストと各種モジュールの初期化*/
 static vx_status app_init(AppObj *obj)
 {
     int status = VX_SUCCESS;
     app_grpx_init_prms_t grpx_prms;
+
+    //追加
+    FcwMainPreConfig fcw_config;
+    obj->fcw_initialized = vx_false_e;
+    //ここまで
 
     /* Create OpenVx Context */
     obj->context = vxCreateContext();
@@ -1056,11 +1128,45 @@ static vx_status app_init(AppObj *obj)
     }
     #endif
 
+    //追加
+    if ((status == VX_SUCCESS) && (obj->enable_vd == 1))
+    {
+        fcw_main_pre_config_set_defaults(&fcw_config);
+        fcw_config.car_class_id = 3;
+        fcw_config.fps = (vx_int32)FCW_VIDEO_FPS;
+        fcw_config.ttc_channel = FCW_FRONT_CHANNEL;
+
+        status = fcw_main_pre_init(
+            &obj->fcw,
+            &fcw_config,
+            app_fcw_alarm_output,
+            NULL);
+
+        if (status == VX_SUCCESS)
+        {
+            obj->fcw_initialized = vx_true_e;
+        }
+        else
+        {
+            printf("[FCW] Initialization failed.\n");
+        }
+    }
+
+    //ここまで
+
     return status;
 }
 
 static void app_deinit(AppObj *obj)
 {
+    //追加 (fcw終了処理)
+    if (obj->fcw_initialized == vx_true_e)
+    {
+        fcw_main_pre_deinit(&obj->fcw);
+        obj->fcw_initialized = vx_false_e;
+    }
+    //ここまで
+
     app_deinit_scaler(&obj->scalerObj, AVP_BUFFER_Q_DEPTH);
 
     app_deinit_pre_proc(&obj->preProcObj);
@@ -1372,6 +1478,16 @@ static vx_status app_run_graph_for_one_frame_sequential(AppObj *obj, vx_int32 fr
 
     status = vxProcessGraph(obj->graph);
 
+    //追加 (fcw処理)
+    if ((status == VX_SUCCESS) &&
+        (obj->fcw_initialized == vx_true_e))
+    {
+        status = app_run_fcw_for_frame(
+            obj,
+            frame_id);
+    }
+    //ここまで
+
 #ifdef x86_64
     printf("Done!\n");
 #endif
@@ -1492,6 +1608,10 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
         {
             status = vxGraphParameterDequeueDoneRef(obj->graph, scalerObj->graph_parameter_index, (vx_reference*)&scaler_input_image, 1, &num_refs);
         }
+
+        /* FCW is disabled for asynchronous pipeline output until its
+         * completed OD tensor buffer is explicitly identified. */
+
         if(((obj->en_out_img_write == 1) || (obj->test_mode == 1)) && (status == VX_SUCCESS))
         {
             vx_char output_file_name[APP_MAX_FILE_PATH];

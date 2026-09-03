@@ -30,7 +30,7 @@ from collections import deque
 import numpy as np
 
 
-R_SQUARED_THRESHOLD = 0.8
+R_SQUARED_THRESHOLD = 0
 
 
 def calculate_ttc(height_history, fps, min_history_size):

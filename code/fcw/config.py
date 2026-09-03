@@ -18,15 +18,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 # SSDモデルと入出力のパス
 # このconfig.pyの場所からプロジェクトのルートを求めるため、
 # Windowsのバックスラッシュを直接文字列へ書く必要がない。
-MODEL = str(
-    PROJECT_ROOT
-    / "model"
-    / "ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8"
-    / "saved_model"
-)
-VIDEO = str(PROJECT_ROOT / "mp4" / "06_fcw_drive_rec_dump.h264")
-OUTPUT_DIR = PROJECT_ROOT / "output"
-LOG_DIR = OUTPUT_DIR / "logs"
+MODEL = "/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/saved_model"
+VIDEO = "/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/動画/06_fcw_drive_rec_dump.h264"
+OUTPUT_DIR = Path("/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/result_mov")
+LOG_DIR = Path("/Users/saitougenbu/Desktop/ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8/csv_log")
 VIDEO_FPS = 25.0
 
 # 検出(Object detector)のパラメータ
