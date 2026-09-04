@@ -82,11 +82,7 @@
 #include "avp_decode_module.h"
 #include "avp_test.h"
 
-/*
- * FCW/TTC core。sourceは複製せず単一の正本を参照する。
- * quoted includeはこのファイルのdirectory基準で解決されるため、
- * concertoのIDIRSに依存しない。
- */
+/* FCW/TTC core（repository rootの codeC を単一の正本として参照する） */
 #include "/home/mmauser/user/new_sdk/RTOS/ti-processor-sdk-rtos-j721e-evm-11_02_01_03/vision_apps/apps/codeC/main_pre.h"
 
 #ifndef x86_64
