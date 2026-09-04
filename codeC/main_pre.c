@@ -1,12 +1,264 @@
 #include "main_pre.h"
+
 #include <string.h>
-static vx_float32 clamp01(vx_float32 v){return v<0.0F?0.0F:(v>1.0F?1.0F:v);}
-void fcw_main_pre_config_set_defaults(FcwMainPreConfig*c){if(!c)return;memset(c,0,sizeof(*c));c->score_threshold=0.0F;c->car_class_id=1;c->fps=30;c->ttc_channel=0U;c->tracker_iou_threshold=0.3F;c->tracker_max_missed_frames=5U;c->alert_on_ttc_sec=4.0F;c->alert_off_ttc_sec=6.5F;c->alert_required_count=3U;}
-vx_status fcw_main_pre_init(FcwMainPreContext*x,const FcwMainPreConfig*c,FcwAlarmOutputFunc o,void*u){FcwMainPreConfig d;vx_status s;if(!x)return VX_ERROR_INVALID_PARAMETERS;memset(x,0,sizeof(*x));fcw_main_pre_config_set_defaults(&d);x->config=c?*c:d;s=fcw_tracker_init(&x->tracker,x->config.tracker_iou_threshold,x->config.tracker_max_missed_frames);if(s!=VX_SUCCESS)return s;s=fcw_alert_init(&x->alert_controller,x->config.alert_on_ttc_sec,x->config.alert_off_ttc_sec,x->config.alert_required_count);return s==VX_SUCCESS?fcw_alarm_init(&x->alarm,o,u):s;}
-void fcw_main_pre_deinit(FcwMainPreContext*x){if(x){fcw_alarm_deinit(&x->alarm);fcw_alert_deinit(&x->alert_controller);fcw_tracker_deinit(&x->tracker);memset(x,0,sizeof(*x));}}
-vx_status fcw_main_pre_begin_frame(FcwMainPreContext*x,vx_int32 f){return x?fcw_frame_result_reset(&x->frame_result,f):VX_ERROR_INVALID_PARAMETERS;}
-vx_status fcw_main_pre_add_detection(FcwMainPreContext*x,const FcwDetection*d){FcwCar*c;vx_float32 v;if(!x||!d)return VX_ERROR_INVALID_PARAMETERS;if(d->score<x->config.score_threshold||d->class_id!=x->config.car_class_id)return VX_SUCCESS;if(fcw_frame_result_add_car(&x->frame_result,&c)!=VX_SUCCESS)return VX_ERROR_NO_RESOURCES;c->box=d->box;if(c->box.xmin>c->box.xmax){v=c->box.xmin;c->box.xmin=c->box.xmax;c->box.xmax=v;}if(c->box.ymin>c->box.ymax){v=c->box.ymin;c->box.ymin=c->box.ymax;c->box.ymax=v;}c->box.xmin=clamp01(c->box.xmin);c->box.xmax=clamp01(c->box.xmax);c->box.ymin=clamp01(c->box.ymin);c->box.ymax=clamp01(c->box.ymax);c->score=d->score;c->class_id=d->class_id;c->object_id=d->object_id;c->channel=d->channel;(void)fcw_roi_check_car(c);if(c->roi_valid!=vx_true_e)x->frame_result.num_cars--;return VX_SUCCESS;}
-vx_status fcw_main_pre_add_tidl_channel(FcwMainPreContext*x,const sTIDL_IOBufDesc_t*io,vx_object_array out,vx_uint32 ch){FcwDetection d[FCW_MAX_DETECTIONS];vx_uint32 n=0U,i;vx_status s;if(!x)return VX_ERROR_INVALID_PARAMETERS;s=fcw_tidl_adapter_extract(io,out,ch,d,FCW_MAX_DETECTIONS,&n);if(s!=VX_SUCCESS)return s;for(i=0U;i<n;i++){s=fcw_main_pre_add_detection(x,&d[i]);if(s!=VX_SUCCESS)return s;}return VX_SUCCESS;}
-vx_status fcw_main_pre_finalize_frame(FcwMainPreContext*x){vx_int32 e[FCW_MAX_TRACKS];vx_uint32 ec=0U,i;vx_status s;if(!x)return VX_ERROR_INVALID_PARAMETERS;s=fcw_tracker_update(&x->tracker,x->frame_result.cars,x->frame_result.num_cars,e,FCW_MAX_TRACKS,&ec);if(s!=VX_SUCCESS)return s;for(i=0U;i<ec;i++){fcw_ttc_drop(&x->ttc_manager,e[i]);(void)fcw_alert_drop(&x->alert_controller,e[i]);}for(i=0U;i<x->frame_result.num_cars;i++){FcwCar*c=&x->frame_result.cars[i];fcw_ttc_data_t d;if(!c->roi_valid||c->channel!=x->config.ttc_channel)continue;d.frame_id=x->frame_result.frame_index;d.track_id=c->track_id;fcw_ttc_calculate_height(c->box.ymin,c->box.ymax,&d);if(fcw_ttc_update(&d,&x->ttc_manager)){c->history_length=fcw_ttc_get_history_length(&x->ttc_manager,c->track_id);(void)fcw_ttc_calculate(x->config.fps,&x->ttc_manager,c->track_id,c);}(void)fcw_alert_update(&x->alert_controller,c);}s=fcw_alarm_update(&x->alarm,x->frame_result.cars,x->frame_result.num_cars);x->frame_result.any_alert=x->alarm.active;return s;}
-vx_status fcw_main_pre_process_tidl_frame(FcwMainPreContext*x,const sTIDL_IOBufDesc_t*io,vx_object_array out,vx_uint32 channels,vx_int32 frame){vx_uint32 ch;vx_status s;if(!x||!io||!out||channels==0U)return VX_ERROR_INVALID_PARAMETERS;s=fcw_main_pre_begin_frame(x,frame);if(s!=VX_SUCCESS)return s;for(ch=0U;ch<channels;ch++){s=fcw_main_pre_add_tidl_channel(x,io,out,ch);if(s!=VX_SUCCESS)return s;}return fcw_main_pre_finalize_frame(x);}
-const FcwFrameResult*fcw_main_pre_get_frame_result(const FcwMainPreContext*x){return x?&x->frame_result:NULL;}
+
+static vx_float32 clamp01(vx_float32 v)
+{
+    return v<0.0F?0.0F:(v>1.0F?1.0F:v);
+}
+
+void fcw_main_pre_config_set_defaults(FcwMainPreConfig*c)
+{
+    if(!c)
+        return;
+
+    memset(c,0,sizeof(*c));
+    c->score_threshold=0.0F;
+    c->car_class_id=1;
+    c->fps=30;
+    c->ttc_channel=0U;
+    c->tracker_iou_threshold=0.3F;
+    c->tracker_max_missed_frames=5U;
+    c->alert_on_ttc_sec=4.0F;
+    c->alert_off_ttc_sec=6.5F;
+    c->alert_required_count=3U;
+}
+
+vx_status fcw_main_pre_init(
+    FcwMainPreContext*x,
+    const FcwMainPreConfig*c,
+    FcwAlarmOutputFunc o,
+    void*u
+)
+{
+    FcwMainPreConfig d;
+    vx_status s;
+
+    if(!x)
+        return VX_ERROR_INVALID_PARAMETERS;
+
+    memset(x,0,sizeof(*x));
+    fcw_main_pre_config_set_defaults(&d);
+    x->config=c?*c:d;
+
+    s=fcw_tracker_init(
+        &x->tracker,
+        x->config.tracker_iou_threshold,
+        x->config.tracker_max_missed_frames
+    );
+    if(s!=VX_SUCCESS)
+        return s;
+
+    s=fcw_alert_init(
+        &x->alert_controller,
+        x->config.alert_on_ttc_sec,
+        x->config.alert_off_ttc_sec,
+        x->config.alert_required_count
+    );
+
+    return s==VX_SUCCESS?fcw_alarm_init(&x->alarm,o,u):s;
+}
+
+void fcw_main_pre_deinit(FcwMainPreContext*x)
+{
+    if(x)
+    {
+        fcw_alarm_deinit(&x->alarm);
+        fcw_alert_deinit(&x->alert_controller);
+        fcw_tracker_deinit(&x->tracker);
+        memset(x,0,sizeof(*x));
+    }
+}
+
+vx_status fcw_main_pre_begin_frame(
+    FcwMainPreContext*x,
+    vx_int32 f
+)
+{
+    return x?fcw_frame_result_reset(&x->frame_result,f):VX_ERROR_INVALID_PARAMETERS;
+}
+
+vx_status fcw_main_pre_add_detection(
+    FcwMainPreContext*x,
+    const FcwDetection*d
+)
+{
+    FcwCar*c;
+    vx_float32 v;
+
+    if(!x||!d)
+        return VX_ERROR_INVALID_PARAMETERS;
+
+    if(d->score<x->config.score_threshold||
+       d->class_id!=x->config.car_class_id)
+        return VX_SUCCESS;
+
+    if(fcw_frame_result_add_car(&x->frame_result,&c)!=VX_SUCCESS)
+        return VX_ERROR_NO_RESOURCES;
+
+    c->box=d->box;
+
+    if(c->box.xmin>c->box.xmax)
+    {
+        v=c->box.xmin;
+        c->box.xmin=c->box.xmax;
+        c->box.xmax=v;
+    }
+
+    if(c->box.ymin>c->box.ymax)
+    {
+        v=c->box.ymin;
+        c->box.ymin=c->box.ymax;
+        c->box.ymax=v;
+    }
+
+    c->box.xmin=clamp01(c->box.xmin);
+    c->box.xmax=clamp01(c->box.xmax);
+    c->box.ymin=clamp01(c->box.ymin);
+    c->box.ymax=clamp01(c->box.ymax);
+    c->score=d->score;
+    c->class_id=d->class_id;
+    c->object_id=d->object_id;
+    c->channel=d->channel;
+
+    (void)fcw_roi_check_car(c);
+    if(c->roi_valid!=vx_true_e)
+        x->frame_result.num_cars--;
+
+    return VX_SUCCESS;
+}
+
+vx_status fcw_main_pre_add_tidl_channel(
+    FcwMainPreContext*x,
+    const sTIDL_IOBufDesc_t*io,
+    vx_object_array out,
+    vx_uint32 ch
+)
+{
+    FcwDetection d[FCW_MAX_DETECTIONS];
+    vx_uint32 n=0U,i;
+    vx_status s;
+
+    if(!x)
+        return VX_ERROR_INVALID_PARAMETERS;
+
+    s=fcw_tidl_adapter_extract(
+        io,
+        out,
+        ch,
+        d,
+        FCW_MAX_DETECTIONS,
+        &n
+    );
+    if(s!=VX_SUCCESS)
+        return s;
+
+    for(i=0U;i<n;i++)
+    {
+        s=fcw_main_pre_add_detection(x,&d[i]);
+        if(s!=VX_SUCCESS)
+            return s;
+    }
+
+    return VX_SUCCESS;
+}
+
+vx_status fcw_main_pre_finalize_frame(FcwMainPreContext*x)
+{
+    vx_int32 e[FCW_MAX_TRACKS];
+    vx_uint32 ec=0U,i;
+    vx_status s;
+
+    if(!x)
+        return VX_ERROR_INVALID_PARAMETERS;
+
+    s=fcw_tracker_update(
+        &x->tracker,
+        x->frame_result.cars,
+        x->frame_result.num_cars,
+        e,
+        FCW_MAX_TRACKS,
+        &ec
+    );
+    if(s!=VX_SUCCESS)
+        return s;
+
+    for(i=0U;i<ec;i++)
+    {
+        fcw_ttc_drop(&x->ttc_manager,e[i]);
+        (void)fcw_alert_drop(&x->alert_controller,e[i]);
+    }
+
+    for(i=0U;i<x->frame_result.num_cars;i++)
+    {
+        FcwCar*c=&x->frame_result.cars[i];
+        fcw_ttc_data_t d;
+
+        if(!c->roi_valid||c->channel!=x->config.ttc_channel)
+            continue;
+
+        d.frame_id=x->frame_result.frame_index;
+        d.track_id=c->track_id;
+        fcw_ttc_calculate_height(c->box.ymin,c->box.ymax,&d);
+
+        if(fcw_ttc_update(&d,&x->ttc_manager))
+        {
+            c->history_length=fcw_ttc_get_history_length(
+                &x->ttc_manager,
+                c->track_id
+            );
+            (void)fcw_ttc_calculate(
+                x->config.fps,
+                &x->ttc_manager,
+                c->track_id,
+                c
+            );
+        }
+
+        (void)fcw_alert_update(&x->alert_controller,c);
+    }
+
+    s=fcw_alarm_update(
+        &x->alarm,
+        x->frame_result.cars,
+        x->frame_result.num_cars
+    );
+    x->frame_result.any_alert=x->alarm.active;
+
+    return s;
+}
+
+vx_status fcw_main_pre_process_tidl_frame(
+    FcwMainPreContext*x,
+    const sTIDL_IOBufDesc_t*io,
+    vx_object_array out,
+    vx_uint32 channels,
+    vx_int32 frame
+)
+{
+    vx_uint32 ch;
+    vx_status s;
+
+    if(!x||!io||!out||channels==0U)
+        return VX_ERROR_INVALID_PARAMETERS;
+
+    s=fcw_main_pre_begin_frame(x,frame);
+    if(s!=VX_SUCCESS)
+        return s;
+
+    for(ch=0U;ch<channels;ch++)
+    {
+        s=fcw_main_pre_add_tidl_channel(x,io,out,ch);
+        if(s!=VX_SUCCESS)
+            return s;
+    }
+
+    return fcw_main_pre_finalize_frame(x);
+}
+
+const FcwFrameResult*fcw_main_pre_get_frame_result(
+    const FcwMainPreContext*x
+)
+{
+    return x?&x->frame_result:NULL;
+}
