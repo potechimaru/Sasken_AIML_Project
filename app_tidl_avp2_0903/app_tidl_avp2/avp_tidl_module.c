@@ -61,8 +61,6 @@
  */
 #include "avp_tidl_module.h"
 
-/*TIDLの設定，ネットワーク，推論ノードの管理*/
-
 #undef COMPUTE_CHECKSUM
 
 static vx_user_data_object readConfig(vx_context context, vx_char *config_file, uint32_t *num_input_tensors, uint32_t *num_output_tensors, vx_uint8 *check_sum);

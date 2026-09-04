@@ -3,8 +3,7 @@ ifeq ($(TARGET_CPU),$(filter $(TARGET_CPU), x86_64 A72 A53))
 include $(PRELUDE)
 
 TARGET      := vx_app_tidl_avp2
-CSOURCES    := main.c avp_scaler_module.c avp_pre_proc_module.c avp_tidl_module.c avp_post_proc_module.c fisheye_angle_table.c avp_img_mosaic_module.c avp_draw_detections_module.c avp_display_module.c ../codeC/main_pre.c ../codeC/fcw_types.c ../codeC/fcw_tidl_adapter.c ../codeC/avp_fcw_roi.c ../codeC/fcw_tracker.c ../codeC/fcw_ttc.c ../codeC/fcw_alert.c ../codeC/fcw_alarm.c
-IDIRS       += ../codeC
+CSOURCES    := main.c avp_decode_module.c avp_scaler_module.c avp_pre_proc_module.c avp_tidl_module.c avp_post_proc_module.c fisheye_angle_table.c avp_img_mosaic_module.c avp_draw_detections_module.c avp_display_module.c
 
 ifeq ($(HOST_COMPILER),GCC_LINUX)
 CFLAGS += -Wno-unused-function
@@ -37,6 +36,26 @@ include $(VISION_APPS_PATH)/apps/concerto_mpu_inc.mak
 IDIRS       += $(VISION_APPS_KERNELS_IDIRS)
 
 STATIC_LIBS += $(VISION_APPS_KERNELS_LIBS)
+
+ifeq ($(TARGET_OS), LINUX)
+
+# avp_decode_module.c は H.264 デコードに GStreamer を使用する
+CFLAGS      += -DLINUX
+
+ifneq ($(LINUX_FS_PATH),)
+IDIRS       += $(LINUX_FS_PATH)/usr/include/gstreamer-1.0
+IDIRS       += $(LINUX_FS_PATH)/usr/include/glib-2.0
+IDIRS       += $(LINUX_FS_PATH)/usr/lib/glib-2.0/include
+endif
+
+SHARED_LIBS += gstreamer-1.0
+SHARED_LIBS += gstapp-1.0
+SHARED_LIBS += gstvideo-1.0
+SHARED_LIBS += gstbase-1.0
+SHARED_LIBS += gobject-2.0
+SHARED_LIBS += glib-2.0
+
+endif
 
 endif
 endif

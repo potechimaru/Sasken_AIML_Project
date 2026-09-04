@@ -68,7 +68,6 @@ vx_status app_init_scaler(vx_context context, ScalerObj *scalerObj, char *objNam
 
     tivx_vpac_msc_coefficients_t coeffs;
 
-    /*1280*720の入力を768*384の出力に変換*/
     vx_image input   = vxCreateImage(context, scalerObj->input.width, scalerObj->input.height, VX_DF_IMAGE_NV12);
     vx_image output  = vxCreateImage(context, scalerObj->output.width, scalerObj->output.height, VX_DF_IMAGE_NV12);
 
@@ -142,7 +141,6 @@ vx_status app_create_graph_scaler(vx_context context, vx_graph graph, ScalerObj 
     return status;
 }
 
-/*YUVファイルから画像読み込み*/
 vx_status readScalerInput(char* file_name, vx_object_array img_arr, int32_t ch_num)
 {
     vx_status status;
@@ -253,7 +251,156 @@ vx_status readScalerInput(char* file_name, vx_object_array img_arr, int32_t ch_n
     return(status);
 }
 
-/*Scaler出力画像をYUVファイルへ書き込み*/
+/*
+ * デコード済みのパック形式NV12フレームを、Scaler入力のobject array（1ch）へコピーする。
+ * 詳細な引数と戻り値はavp_scaler_module.hに記載している。
+ */
+vx_status copyScalerInputFromNv12(const uint8_t *nv12_data,
+                                  size_t nv12_size,
+                                  vx_object_array img_arr)
+{
+    vx_status status;
+    vx_size    arr_len = 0;
+    vx_image   in_img;
+    vx_uint32  img_width  = 0;
+    vx_uint32  img_height = 0;
+    size_t     required_size;
+    vx_rectangle_t rect;
+    vx_imagepatch_addressing_t image_addr;
+    vx_map_id  map_id;
+    void      *data_ptr = NULL;
+    vx_uint32  j;
+
+    if(nv12_data == NULL)
+    {
+        printf("copyScalerInputFromNv12: NV12 source pointer is NULL\n");
+        return (VX_FAILURE);
+    }
+
+    status = vxGetStatus((vx_reference)img_arr);
+    if(status != VX_SUCCESS)
+    {
+        printf("copyScalerInputFromNv12: invalid object array\n");
+        return (status);
+    }
+
+    status = vxQueryObjectArray(img_arr, VX_OBJECT_ARRAY_NUMITEMS, &arr_len, sizeof(vx_size));
+    if(status != VX_SUCCESS)
+    {
+        printf("copyScalerInputFromNv12: unable to query object array item count\n");
+        return (status);
+    }
+
+    /* 1ch構成のみを対象とし、3chへの複製は行わない */
+    if(arr_len != 1)
+    {
+        printf("copyScalerInputFromNv12: expected a 1 channel object array, found %d\n",
+               (vx_int32)arr_len);
+        return (VX_FAILURE);
+    }
+
+    in_img = (vx_image)vxGetObjectArrayItem(img_arr, 0);
+    status = vxGetStatus((vx_reference)in_img);
+    if(status != VX_SUCCESS)
+    {
+        printf("copyScalerInputFromNv12: unable to get image from object array\n");
+        return (status);
+    }
+
+    status = vxQueryImage(in_img, VX_IMAGE_WIDTH, &img_width, sizeof(vx_uint32));
+    if(status == VX_SUCCESS)
+    {
+        status = vxQueryImage(in_img, VX_IMAGE_HEIGHT, &img_height, sizeof(vx_uint32));
+    }
+    if(status != VX_SUCCESS)
+    {
+        printf("copyScalerInputFromNv12: unable to query image size\n");
+        vxReleaseImage(&in_img);
+        return (status);
+    }
+
+    if((img_width == 0u) || (img_height == 0u) || ((img_height & 1u) != 0u))
+    {
+        printf("copyScalerInputFromNv12: invalid image size %ux%u\n", img_width, img_height);
+        vxReleaseImage(&in_img);
+        return (VX_FAILURE);
+    }
+
+    required_size = ((size_t)img_width * (size_t)img_height * 3u) / 2u;
+    if(nv12_size < required_size)
+    {
+        printf("copyScalerInputFromNv12: NV12 size %d is smaller than required %d for %ux%u\n",
+               (vx_int32)nv12_size, (vx_int32)required_size, img_width, img_height);
+        vxReleaseImage(&in_img);
+        return (VX_FAILURE);
+    }
+
+    /* Copy Luma */
+    rect.start_x = 0;
+    rect.start_y = 0;
+    rect.end_x   = img_width;
+    rect.end_y   = img_height;
+    status = vxMapImagePatch(in_img,
+                            &rect,
+                            0,
+                            &map_id,
+                            &image_addr,
+                            &data_ptr,
+                            VX_WRITE_ONLY,
+                            VX_MEMORY_TYPE_HOST,
+                            VX_NOGAP_X);
+    if(status != VX_SUCCESS)
+    {
+        printf("copyScalerInputFromNv12: unable to map luma plane\n");
+        vxReleaseImage(&in_img);
+        return (status);
+    }
+
+    for(j = 0; j < img_height; j++)
+    {
+        memcpy((vx_uint8 *)data_ptr + ((size_t)j * (size_t)image_addr.stride_y),
+               nv12_data + ((size_t)j * (size_t)img_width),
+               img_width);
+    }
+
+    vxUnmapImagePatch(in_img, map_id);
+
+    /* Copy CbCr */
+    rect.start_x = 0;
+    rect.start_y = 0;
+    rect.end_x   = img_width;
+    rect.end_y   = img_height / 2;
+    status = vxMapImagePatch(in_img,
+                            &rect,
+                            1,
+                            &map_id,
+                            &image_addr,
+                            &data_ptr,
+                            VX_WRITE_ONLY,
+                            VX_MEMORY_TYPE_HOST,
+                            VX_NOGAP_X);
+    if(status != VX_SUCCESS)
+    {
+        printf("copyScalerInputFromNv12: unable to map chroma plane\n");
+        vxReleaseImage(&in_img);
+        return (status);
+    }
+
+    for(j = 0; j < (img_height / 2u); j++)
+    {
+        memcpy((vx_uint8 *)data_ptr + ((size_t)j * (size_t)image_addr.stride_y),
+               nv12_data + ((size_t)img_width * (size_t)img_height) +
+                           ((size_t)j * (size_t)img_width),
+               img_width);
+    }
+
+    vxUnmapImagePatch(in_img, map_id);
+
+    vxReleaseImage(&in_img);
+
+    return (status);
+}
+
 vx_status writeScalerOutput(char* file_name, vx_object_array img_arr)
 {
     vx_status status;

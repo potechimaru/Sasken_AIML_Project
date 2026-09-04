@@ -79,14 +79,8 @@
 #include "avp_draw_detections_module.h"
 #include "avp_img_mosaic_module.h"
 #include "avp_display_module.h"
+#include "avp_decode_module.h"
 #include "avp_test.h"
-
-//追加
-#include "../codeC/main_pre.h"
-
-#define FCW_FRONT_CHANNEL (0u)
-#define FCW_VIDEO_FPS     (25.0F)
-//ここまで
 
 #ifndef x86_64
 #define AVP_ENABLE_PIPELINE_FLOW
@@ -115,6 +109,12 @@ typedef struct {
 
     vx_char input_file_path[APP_MAX_FILE_PATH];
     vx_char output_file_path[APP_MAX_FILE_PATH];
+
+    /* H.264デコーダーのコンテキスト。input_mode==1のときだけ使用する */
+    AvpDecodeContext *decode_context;
+
+    /* 0: 従来の連番YUV入力, 1: H.264 Decoder入力 */
+    vx_int32 input_mode;
 
     /* OpenVX references */
     vx_context context;
@@ -159,11 +159,6 @@ typedef struct {
     int32_t enqueueCnt;
     int32_t dequeueCnt;
 
-    //追加
-    /* FCW追加部分 */
-    FcwMainPreContext fcw;
-    vx_bool fcw_initialized;
-    //ここまで
 } AppObj;
 
 AppObj gAppObj;
@@ -203,11 +198,6 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
 #else
 static vx_status app_run_graph_for_one_frame_sequential(AppObj *obj, vx_int32 frame_id);
 #endif
-
-//追加
-static vx_status app_run_fcw_for_frame(AppObj  *obj, vx_int32 frame_id);
-static void app_fcw_alarm_output(vx_bool active, void *user_data);
-//ここまで
 
 static void app_show_usage(vx_int32 argc, vx_char* argv[])
 {
@@ -415,6 +405,15 @@ static void app_parse_cfg_file(AppObj *obj, vx_char *cfg_file_name)
                 {
                     token[strlen(token)-1]=0;
                     strcpy(obj->input_file_path, token);
+                }
+            }
+            else
+            if(strcmp(token, "input_mode")==0)
+            {
+                token = strtok(NULL, s);
+                if(token != NULL)
+                {
+                    obj->input_mode = atoi(token);
                 }
             }
             else
@@ -965,66 +964,10 @@ static vx_status fill_background_image(vx_image background)
     return (status);
 }
 
-//追加
-static vx_status app_run_fcw_for_frame(
-    AppObj  *obj,
-    vx_int32 frame_id)
-{
-    vx_status status;
-
-    if (obj == NULL)
-    {
-        return VX_ERROR_INVALID_PARAMETERS;
-    }
-
-    if (obj->enable_vd != 1)
-    {
-        return VX_SUCCESS;
-    }
-
-    if (obj->fcw_initialized != vx_true_e)
-    {
-        return VX_FAILURE;
-    }
-
-    /* TIDL出力を取り込み、FCWの一連の処理を実行する。 */
-    status = fcw_main_pre_process_tidl_frame(
-        &obj->fcw,
-        &obj->odPostProcObj.ioBufDesc,
-        obj->odTIDLObj.output1_tensor_arr,
-        NUM_CH,
-        frame_id);
-
-    if (status != VX_SUCCESS)
-    {
-        printf("[FCW] Processing failed. frame=%d\n",
-               frame_id);
-        return status;
-    }
-
-    printf("[FCW] frame=%d, fcw_cars=%u, alarm=%d\n", frame_id,
-           obj->fcw.frame_result.num_cars, obj->fcw.frame_result.any_alert);
-
-    return VX_SUCCESS;
-}
-
-static void app_fcw_alarm_output(vx_bool active, void *user_data)
-{
-    (void)user_data;
-    printf("[FCW] ALARM_%s\n", active == vx_true_e ? "ON" : "OFF");
-}
-//ここまで
-
-/*Open VXコンテキストと各種モジュールの初期化*/
 static vx_status app_init(AppObj *obj)
 {
     int status = VX_SUCCESS;
     app_grpx_init_prms_t grpx_prms;
-
-    //追加
-    FcwMainPreConfig fcw_config;
-    obj->fcw_initialized = vx_false_e;
-    //ここまで
 
     /* Create OpenVx Context */
     obj->context = vxCreateContext();
@@ -1128,44 +1071,13 @@ static vx_status app_init(AppObj *obj)
     }
     #endif
 
-    //追加
-    if ((status == VX_SUCCESS) && (obj->enable_vd == 1))
-    {
-        fcw_main_pre_config_set_defaults(&fcw_config);
-        fcw_config.car_class_id = 3;
-        fcw_config.fps = (vx_int32)FCW_VIDEO_FPS;
-        fcw_config.ttc_channel = FCW_FRONT_CHANNEL;
-
-        status = fcw_main_pre_init(
-            &obj->fcw,
-            &fcw_config,
-            app_fcw_alarm_output,
-            NULL);
-
-        if (status == VX_SUCCESS)
-        {
-            obj->fcw_initialized = vx_true_e;
-        }
-        else
-        {
-            printf("[FCW] Initialization failed.\n");
-        }
-    }
-
-    //ここまで
-
     return status;
 }
 
 static void app_deinit(AppObj *obj)
 {
-    //追加 (fcw終了処理)
-    if (obj->fcw_initialized == vx_true_e)
-    {
-        fcw_main_pre_deinit(&obj->fcw);
-        obj->fcw_initialized = vx_false_e;
-    }
-    //ここまで
+    /* input_mode==0でもコンテキストがNULLなら何もしないので、常に呼ぶ */
+    avp_decode_release(&obj->decode_context);
 
     app_deinit_scaler(&obj->scalerObj, AVP_BUFFER_Q_DEPTH);
 
@@ -1462,11 +1374,18 @@ static vx_status app_run_graph_for_one_frame_sequential(AppObj *obj, vx_int32 fr
 
     ScalerObj *scalerObj = &obj->scalerObj;
 
+    /* H.264 Decoder入力はpipelineパスのみ対応。sequentialパスでは明示的にエラーにする */
+    if(obj->input_mode == 1)
+    {
+        printf("app_avp2: input_mode 1 (H.264 decoder) is supported only in the pipelined flow\n");
+        return (VX_FAILURE);
+    }
+
     snprintf(input_file_name, APP_MAX_FILE_PATH, "%s/%010d.yuv", obj->input_file_path, frame_id);
 
     appPerfPointBegin(&obj->fileio_perf);
 
-    readScalerInput(input_file_name, scalerObj->input.arr[0], NUM_CH);
+    readScalerInput(input_file_name, scalerObj->input.arr[0], 0);
 
     appPerfPointEnd(&obj->fileio_perf);
 
@@ -1477,16 +1396,6 @@ static vx_status app_run_graph_for_one_frame_sequential(AppObj *obj, vx_int32 fr
 #endif
 
     status = vxProcessGraph(obj->graph);
-
-    //追加 (fcw処理)
-    if ((status == VX_SUCCESS) &&
-        (obj->fcw_initialized == vx_true_e))
-    {
-        status = app_run_fcw_for_frame(
-            obj,
-            frame_id);
-    }
-    //ここまで
 
 #ifdef x86_64
     printf("Done!\n");
@@ -1565,10 +1474,45 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
     vx_char input_file_name[APP_MAX_FILE_PATH];
     vx_int32 obj_array_idx = -1;
 
+    /* H.264デコーダーから取得した1フレーム分のNV12。input_mode==1のときだけ有効 */
+    const uint8_t *nv12_data   = NULL;
+    size_t         nv12_size   = 0;
+    uint32_t       nv12_width  = 0;
+    uint32_t       nv12_height = 0;
+
     ScalerObj    *scalerObj    = &obj->scalerObj;
     ImgMosaicObj *imgMosaicObj = &obj->imgMosaicObj;
 
     snprintf(input_file_name, APP_MAX_FILE_PATH, "%s/%010d.yuv", obj->input_file_path, frame_id);
+
+    if(obj->input_mode == 1)
+    {
+        /*
+         * デコードはこの関数の呼び出し1回につき1フレームだけ行う。
+         * 下の2か所のScaler入力充填は、ここで取得した同じフレームを使用する。
+         */
+        status = avp_decode_h264_next_frame(&obj->decode_context,
+                                            obj->input_file_path,
+                                            &nv12_data,
+                                            &nv12_size,
+                                            &nv12_width,
+                                            &nv12_height);
+        if(status != VX_SUCCESS)
+        {
+            /* AVP_DECODE_EOSは正常終了、それ以外はエラーとして呼び出し元へ返す */
+            return status;
+        }
+
+        if((nv12_width  != (uint32_t)scalerObj->input.width) ||
+           (nv12_height != (uint32_t)scalerObj->input.height))
+        {
+            printf("app_avp2: decoder output is %ux%u but scaler input is %dx%d "
+                   "(expected 1280x720 NV12)\n",
+                   nv12_width, nv12_height,
+                   scalerObj->input.width, scalerObj->input.height);
+            return (VX_FAILURE);
+        }
+    }
 
     if(obj->pipeline < 0)
     {
@@ -1581,7 +1525,15 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
 
         appPerfPointBegin(&obj->fileio_perf);
         /* Read input */
-        readScalerInput(input_file_name, scalerObj->input.arr[obj->enqueueCnt], NUM_CH);
+        if(obj->input_mode == 1)
+        {
+            status = copyScalerInputFromNv12(nv12_data, nv12_size,
+                                             scalerObj->input.arr[obj->enqueueCnt]);
+        }
+        else
+        {
+            readScalerInput(input_file_name, scalerObj->input.arr[obj->enqueueCnt], 0);
+        }
 
         appPerfPointEnd(&obj->fileio_perf);
 
@@ -1608,10 +1560,6 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
         {
             status = vxGraphParameterDequeueDoneRef(obj->graph, scalerObj->graph_parameter_index, (vx_reference*)&scaler_input_image, 1, &num_refs);
         }
-
-        /* FCW is disabled for asynchronous pipeline output until its
-         * completed OD tensor buffer is explicitly identified. */
-
         if(((obj->en_out_img_write == 1) || (obj->test_mode == 1)) && (status == VX_SUCCESS))
         {
             vx_char output_file_name[APP_MAX_FILE_PATH];
@@ -1660,7 +1608,16 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
         }
         if((obj_array_idx != -1) && (status == VX_SUCCESS))
         {
-            status = readScalerInput(input_file_name, scalerObj->input.arr[obj_array_idx], NUM_CH);
+            if(obj->input_mode == 1)
+            {
+                /* 上でデコードした同じフレームを使用する。ここでは再度デコードしない */
+                status = copyScalerInputFromNv12(nv12_data, nv12_size,
+                                                 scalerObj->input.arr[obj_array_idx]);
+            }
+            else
+            {
+                status = readScalerInput(input_file_name, scalerObj->input.arr[obj_array_idx], 0);
+            }
         }
         appPerfPointEnd(&obj->fileio_perf);
 
@@ -1724,6 +1681,20 @@ static vx_status app_run_graph(AppObj *obj)
             appPerfPointEnd(&obj->total_perf);
 
             APP_PRINTF("app_avp2: Frame ID %d of %d ... Done.\n", frame_id, obj->start_frame + obj->num_frames);
+
+            if(status == AVP_DECODE_EOS)
+            {
+                /* 入力ストリームの終端。正常終了として扱う */
+                printf("app_avp2: H.264 input reached end of stream at frame %d\n", frame_id);
+                status = VX_SUCCESS;
+                obj->stop_task = 1;
+            }
+            else
+            if(status != VX_SUCCESS)
+            {
+                printf("app_avp2: frame %d failed with status %d\n", frame_id, (vx_int32)status);
+                obj->stop_task = 1;
+            }
 
             /* user asked to stop processing */
             if((obj->stop_task) || (status == VX_FAILURE))
@@ -1932,96 +1903,19 @@ static void set_img_mosaic_defaults(AppObj *obj, ImgMosaicObj *imgMosaicObj)
     }
 
     in = 0;
-    /* Right camera - PSD output */
-    if(obj->enable_psd == 1)
-    {
-        imgMosaicObj->params.windows[idx].startX  = 120;
-        imgMosaicObj->params.windows[idx].startY  = 412;
-        imgMosaicObj->params.windows[idx].width   = 576;
-        imgMosaicObj->params.windows[idx].height  = 288;
-        imgMosaicObj->params.windows[idx].input_select   = in;
-        imgMosaicObj->params.windows[idx].channel_select = 2;
-        idx++;
 
-        imgMosaicObj->params.windows[idx].startX  = 700;
-        imgMosaicObj->params.windows[idx].startY  = 412;
-        imgMosaicObj->params.windows[idx].width   = 576;
-        imgMosaicObj->params.windows[idx].height  = 288;
-        imgMosaicObj->params.windows[idx].input_select   = in;
-        imgMosaicObj->params.windows[idx].channel_select = 0;
-        idx++;
-
-        imgMosaicObj->params.windows[idx].startX  = 1280;
-        imgMosaicObj->params.windows[idx].startY  = 412;
-        imgMosaicObj->params.windows[idx].width   = 576;
-        imgMosaicObj->params.windows[idx].height  = 288;
-        imgMosaicObj->params.windows[idx].input_select   = in;
-        imgMosaicObj->params.windows[idx].channel_select = 1;
-        idx++;
-
-        in++;
-    }
-
-    /* Right camera - PSD output */
+    /* Vehicle Detection - Front camera only */
     if(obj->enable_vd == 1)
     {
-
-        imgMosaicObj->params.windows[idx].startX  = 120;
-        imgMosaicObj->params.windows[idx].startY  = 704;
-        imgMosaicObj->params.windows[idx].width   = 576;
-        imgMosaicObj->params.windows[idx].height  = 288;
-        imgMosaicObj->params.windows[idx].input_select   = in;
-        imgMosaicObj->params.windows[idx].channel_select = 2;
-        idx++;
-
-        imgMosaicObj->params.windows[idx].startX  = 700;
-        imgMosaicObj->params.windows[idx].startY  = 704;
-        imgMosaicObj->params.windows[idx].width   = 576;
-        imgMosaicObj->params.windows[idx].height  = 288;
-        imgMosaicObj->params.windows[idx].input_select   = in;
-        imgMosaicObj->params.windows[idx].channel_select = 0;
-        idx++;
-
-        imgMosaicObj->params.windows[idx].startX  = 1280;
-        imgMosaicObj->params.windows[idx].startY  = 704;
-        imgMosaicObj->params.windows[idx].width   = 576;
-        imgMosaicObj->params.windows[idx].height  = 288;
-        imgMosaicObj->params.windows[idx].input_select   = in;
-        imgMosaicObj->params.windows[idx].channel_select = 1;
-        idx++;
-
-        in++;
-    }
-
-    /* Front camera - semantic segmentation output */
-    if(obj->enable_sem_seg == 1)
-    {
-
-        imgMosaicObj->params.windows[idx].startX  = 120;
-        imgMosaicObj->params.windows[idx].startY  = 120;
-        imgMosaicObj->params.windows[idx].width   = 576;
-        imgMosaicObj->params.windows[idx].height  = 288;
-        imgMosaicObj->params.windows[idx].input_select   = in;
-        imgMosaicObj->params.windows[idx].channel_select = 2;
-        idx++;
-
-        imgMosaicObj->params.windows[idx].startX  = 700;
-        imgMosaicObj->params.windows[idx].startY  = 120;
-        imgMosaicObj->params.windows[idx].width   = 576;
-        imgMosaicObj->params.windows[idx].height  = 288;
-        imgMosaicObj->params.windows[idx].input_select   = in;
-        imgMosaicObj->params.windows[idx].channel_select = 0;
-        idx++;
-
-        imgMosaicObj->params.windows[idx].startX  = 1280;
-        imgMosaicObj->params.windows[idx].startY  = 120;
-        imgMosaicObj->params.windows[idx].width   = 576;
-        imgMosaicObj->params.windows[idx].height  = 288;
-        imgMosaicObj->params.windows[idx].input_select   = in;
-        imgMosaicObj->params.windows[idx].channel_select = 1;
-        idx++;
-
-        in++;
+    	imgMosaicObj->params.windows[idx].startX  = 320;
+    	imgMosaicObj->params.windows[idx].startY  = 180;
+    	imgMosaicObj->params.windows[idx].width   = 1280;
+    	imgMosaicObj->params.windows[idx].height  = 720;
+    	imgMosaicObj->params.windows[idx].input_select   = in;
+    	imgMosaicObj->params.windows[idx].channel_select = 0;
+    	idx++;
+	
+   	in++;
     }
 
     imgMosaicObj->params.num_windows  = idx;
@@ -2072,6 +1966,10 @@ static void app_default_param_set(AppObj *obj)
     obj->enable_psd     = 1;
     obj->enable_vd      = 1;
     obj->enable_sem_seg = 1;
+
+    /* 既定は従来の連番YUV入力 */
+    obj->input_mode     = 0;
+    obj->decode_context = NULL;
     vx_int32 i;
 
     for(i=0; i < TIVX_PIXEL_VIZ_MAX_CLASS; i++)
