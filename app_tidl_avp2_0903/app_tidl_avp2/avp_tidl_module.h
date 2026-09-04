@@ -78,6 +78,16 @@ typedef struct
     vx_object_array  out_args_arr;
 
     vx_object_array  output1_tensor_arr; /* PSD/VD/SemSeg output */
+
+    /*
+     * FCW用：OD outputをqueue付きgraph parameterとして扱うための追加buffer。
+     * output1_tensors[q]はgraph parameterのrefs_listに渡すitem 0のreferenceで、
+     * Scaler入力のinput_images[]と同じ構成である。
+     * q=0はoutput1_tensor_arrのitem 0を指し、q>=1は追加で確保したobject arrayを指す。
+     */
+    vx_object_array  output1_tensor_arr_bufq[APP_MAX_BUFQ_DEPTH];
+    vx_tensor        output1_tensors[APP_MAX_BUFQ_DEPTH];
+    vx_int32         output_graph_parameter_index;
     vx_object_array  output2_tensor_arr; /* VD/Motion output */
     vx_object_array  output3_tensor_arr; /* Depth output */
 
@@ -103,6 +113,14 @@ vx_status app_init_tidl_od(vx_context context, TIDLObj *obj, char *objName);
 void app_deinit_tidl_od(TIDLObj *obj);
 void app_delete_tidl_od(TIDLObj *obj);
 vx_status app_create_graph_tidl_od(vx_context context, vx_graph graph, TIDLObj *obj, vx_object_array input_tensor_arr);
+
+/*
+ * FCW用：OD outputのbuffer queueを用意する。app_init_tidl_od()の後に呼ぶ。
+ * 失敗した場合、呼び出し側はOD outputのgraph parameter化を諦めて
+ * 既存のtivxSetNodeParameterNumBufByIndex()経路へfallbackしてよい。
+ */
+vx_status app_init_tidl_od_output_bufq(vx_context context, TIDLObj *obj, vx_int32 bufq_depth);
+void app_deinit_tidl_od_output_bufq(TIDLObj *obj, vx_int32 bufq_depth);
 
 vx_status app_init_tidl_pc(vx_context context, TIDLObj *obj, char *objName);
 void app_deinit_tidl_pc(TIDLObj *obj);

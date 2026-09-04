@@ -1,4 +1,5 @@
 #include "fcw_tidl_adapter.h"
+#include <stddef.h>
 
 /* Host integration-test fixture: represents a front-camera car that grows
  * by one percent of image height on each synthetic video frame. */

@@ -203,6 +203,93 @@ void app_delete_tidl_od(TIDLObj *tidlObj)
     }
 }
 
+/*
+ * FCW用：OD outputのbuffer queueを用意する。
+ *
+ * OD outputはreplicated nodeのparameter index 7で、graph parameterには
+ * object arrayのitem 0（vx_tensor）を渡す。Scaler入力のinput_images[]と
+ * 同じ構成にしてある。
+ *
+ * q=0はapp_init_tidl_od()が確保済みのoutput1_tensor_arrをそのまま使う。
+ * q>=1のobject arrayだけをここで追加確保する。
+ */
+vx_status app_init_tidl_od_output_bufq(vx_context context, TIDLObj *tidlObj, vx_int32 bufq_depth)
+{
+    vx_status status = VX_SUCCESS;
+    vx_int32  q;
+    vx_tensor exemplar;
+
+    if((tidlObj == NULL) || (bufq_depth <= 0) || (bufq_depth > APP_MAX_BUFQ_DEPTH))
+    {
+        return VX_ERROR_INVALID_PARAMETERS;
+    }
+
+    for(q = 0; q < APP_MAX_BUFQ_DEPTH; q++)
+    {
+        tidlObj->output1_tensor_arr_bufq[q] = NULL;
+        tidlObj->output1_tensors[q]         = NULL;
+    }
+    tidlObj->output_graph_parameter_index = -1;
+
+    /* q=0は既存のobject arrayのitem 0 */
+    tidlObj->output1_tensors[0] = (vx_tensor)vxGetObjectArrayItem(tidlObj->output1_tensor_arr, 0);
+    status = vxGetStatus((vx_reference)tidlObj->output1_tensors[0]);
+    if(status != VX_SUCCESS)
+    {
+        printf("app_init_tidl_od_output_bufq: unable to get output tensor item 0\n");
+        return status;
+    }
+    exemplar = tidlObj->output1_tensors[0];
+
+    for(q = 1; (q < bufq_depth) && (status == VX_SUCCESS); q++)
+    {
+        tidlObj->output1_tensor_arr_bufq[q] =
+            vxCreateObjectArray(context, (vx_reference)exemplar, NUM_CH);
+        status = vxGetStatus((vx_reference)tidlObj->output1_tensor_arr_bufq[q]);
+
+        if(status == VX_SUCCESS)
+        {
+            tidlObj->output1_tensors[q] =
+                (vx_tensor)vxGetObjectArrayItem(tidlObj->output1_tensor_arr_bufq[q], 0);
+            status = vxGetStatus((vx_reference)tidlObj->output1_tensors[q]);
+        }
+
+        if(status != VX_SUCCESS)
+        {
+            printf("app_init_tidl_od_output_bufq: unable to allocate OD output buffer %d\n", q);
+        }
+    }
+
+    return status;
+}
+
+void app_deinit_tidl_od_output_bufq(TIDLObj *tidlObj, vx_int32 bufq_depth)
+{
+    vx_int32 q;
+
+    if((tidlObj == NULL) || (bufq_depth <= 0) || (bufq_depth > APP_MAX_BUFQ_DEPTH))
+    {
+        return;
+    }
+
+    for(q = 0; q < bufq_depth; q++)
+    {
+        if(tidlObj->output1_tensors[q] != NULL)
+        {
+            vxReleaseTensor(&tidlObj->output1_tensors[q]);
+            tidlObj->output1_tensors[q] = NULL;
+        }
+        /* q=0のobject arrayはapp_deinit_tidl_od()が解放する */
+        if((q > 0) && (tidlObj->output1_tensor_arr_bufq[q] != NULL))
+        {
+            vxReleaseObjectArray(&tidlObj->output1_tensor_arr_bufq[q]);
+            tidlObj->output1_tensor_arr_bufq[q] = NULL;
+        }
+    }
+
+    tidlObj->output_graph_parameter_index = -1;
+}
+
 vx_status app_create_graph_tidl_od(vx_context context, vx_graph graph, TIDLObj *tidlObj, vx_object_array input_tensor_arr)
 {
     vx_status status = VX_SUCCESS;

@@ -1,4 +1,5 @@
 #include "avp_fcw_roi.h"
+#include <stddef.h>
 
 /* Fixed normalized trapezoid: (0.40,0.50)-(0.60,0.50)-(0.80,1.0)-(0.20,1.0). */
 vx_bool fcw_roi_check_car(FcwCar *car)
