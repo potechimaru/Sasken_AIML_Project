@@ -97,7 +97,7 @@ static int test_ttc(void)
         data.height = 0.10F + 0.01F * (vx_float32)i;
         CHECK(fcw_ttc_update(&data, &manager) == vx_true_e);
     }
-    CHECK(fcw_ttc_get_history_length(&manager, 1) == 10U);
+    CHECK(fcw_ttc_get_history_length(&manager, 1) == FCW_TTC_HISTORY_SIZE);
     CHECK(fcw_ttc_calculate(30, &manager, 1, &car) == vx_true_e);
     CHECK(car.ttc_valid == vx_true_e);
     CHECK(car.ttc_sec > 0.0F);

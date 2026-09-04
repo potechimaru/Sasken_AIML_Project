@@ -70,47 +70,69 @@ void fcw_ttc_drop(fcw_ttc_manager_t *m, vx_int32 id) {
 }
 vx_bool fcw_ttc_calculate(vx_int32 fps, const fcw_ttc_manager_t *m, vx_int32 id, FcwCar *c) {
     const fcw_ttc_track_t *t;
-    vx_float32 time[10], inv[10], mt = 0.0F, mh = 0.0F, st = 0.0F, sh = 0.0F, slope, intercept,
-                                  res = 0.0F, total = 0.0F, r2;
+    vx_float32 time[FCW_TTC_HISTORY_SIZE];
+    vx_float32 height[FCW_TTC_HISTORY_SIZE];
+    vx_float32 mean_time = 0.0F;
+    vx_float32 mean_height = 0.0F;
+    vx_float32 time_variance = 0.0F;
+    vx_float32 covariance = 0.0F;
+    vx_float32 slope;
+    vx_float32 intercept;
+    vx_float32 residual = 0.0F;
+    vx_float32 total = 0.0F;
+    vx_float32 r2;
     vx_uint32 i;
+
     if (c)
         c->ttc_valid = vx_false_e;
     if (!m || !c || fps <= 0)
         return vx_false_e;
     t = find_track_const(m, id);
-    if (!t || t->history.count < 10U)
+    if (!t || t->history.count < FCW_TTC_HISTORY_SIZE)
         return vx_false_e;
+
     for (i = 0U; i < FCW_TTC_HISTORY_SIZE; i++) {
         if (t->history.height[i] <= 0.0F)
             return vx_false_e;
+
         time[i] =
             (vx_float32)(t->history.frame_id[i] - t->history.frame_id[FCW_TTC_HISTORY_SIZE - 1U]) /
             (vx_float32)fps;
-        inv[i] = 1.0F / t->history.height[i];
-        mt += time[i];
-        mh += inv[i];
+        height[i] = t->history.height[i];
+        mean_time += time[i];
+        mean_height += height[i];
     }
-    mt /= (vx_float32)FCW_TTC_HISTORY_SIZE;
-    mh /= (vx_float32)FCW_TTC_HISTORY_SIZE;
+
+    mean_time /= (vx_float32)FCW_TTC_HISTORY_SIZE;
+    mean_height /= (vx_float32)FCW_TTC_HISTORY_SIZE;
+
     for (i = 0U; i < FCW_TTC_HISTORY_SIZE; i++) {
-        st += (time[i] - mt) * (time[i] - mt);
-        sh += (time[i] - mt) * (inv[i] - mh);
+        time_variance += (time[i] - mean_time) * (time[i] - mean_time);
+        covariance += (time[i] - mean_time) * (height[i] - mean_height);
     }
-    if (st <= 0.0F)
+
+    if (time_variance <= 0.0F)
         return vx_false_e;
-    slope = sh / st;
-    intercept = mh - slope * mt;
+
+    slope = covariance / time_variance;
+    intercept = mean_height - slope * mean_time;
+
     for (i = 0U; i < FCW_TTC_HISTORY_SIZE; i++) {
-        vx_float32 e = inv[i] - (slope * time[i] + intercept), d = inv[i] - mh;
-        res += e * e;
-        total += d * d;
+        vx_float32 error = height[i] - (slope * time[i] + intercept);
+        vx_float32 deviation = height[i] - mean_height;
+        residual += error * error;
+        total += deviation * deviation;
     }
+
     if (total <= 0.0F)
         return vx_false_e;
-    r2 = 1.0F - res / total;
-    if (r2 < FCW_TTC_MIN_R_SQUARED || slope >= 0.0F)
+
+    r2 = 1.0F - residual / total;
+    if (r2 < FCW_TTC_MIN_R_SQUARED || slope <= 0.0F)
         return vx_false_e;
-    c->ttc_sec = -inv[0] / slope;
+
+    /* Height-domain expansion TTC: TTC = current height / dh/dt. */
+    c->ttc_sec = height[0] / slope;
     c->ttc_valid = vx_true_e;
     return vx_true_e;
 }
