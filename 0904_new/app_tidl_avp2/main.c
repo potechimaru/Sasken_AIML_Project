@@ -218,10 +218,10 @@ static void app_draw_graphics(Draw2D_Handle *handle, Draw2D_BufInfo *draw2dBufIn
 #endif
 #ifdef AVP_ENABLE_PIPELINE_FLOW
 static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 frame_id);
-static void app_fcw_alarm_output(vx_bool active, void *user_data);
+//static void app_fcw_alarm_output(vx_bool active, void *user_data);
 static vx_status app_fcw_init(AppObj *obj);
 static void app_fcw_deinit(AppObj *obj);
-static vx_status app_fcw_process_completed_frame(AppObj *obj, vx_object_array od_output_arr, vx_int32 frame_id);
+//static vx_status app_fcw_process_completed_frame(AppObj *obj, vx_object_array od_output_arr, vx_int32 frame_id);
 static void app_find_tensor_index(vx_tensor tensors[], vx_reference ref, vx_int32 array_size, vx_int32 *array_idx);
 #else
 static vx_status app_run_graph_for_one_frame_sequential(AppObj *obj, vx_int32 frame_id);
@@ -861,15 +861,15 @@ vx_int32 app_tidl_avp_main(vx_int32 argc, vx_char* argv[])
 /*
  * Utility API used to add a graph parameter from a node, node parameter index
  */
-// #ifdef AVP_ENABLE_PIPELINE_FLOW
-// static void add_graph_parameter_by_node_index(vx_graph graph, vx_node node, vx_uint32 node_parameter_index)
-// {
-//     vx_parameter parameter = vxGetParameterByIndex(node, node_parameter_index);
+#ifdef AVP_ENABLE_PIPELINE_FLOW
+static void add_graph_parameter_by_node_index(vx_graph graph, vx_node node, vx_uint32 node_parameter_index)
+{
+    vx_parameter parameter = vxGetParameterByIndex(node, node_parameter_index);
 
-//     vxAddParameterToGraph(graph, parameter);
-//     vxReleaseParameter(&parameter);
-// }
-// #endif
+    vxAddParameterToGraph(graph, parameter);
+    vxReleaseParameter(&parameter);
+}
+#endif
 
 static vx_status app_fcw_init(AppObj *obj);
 static void app_fcw_deinit(AppObj *obj);
