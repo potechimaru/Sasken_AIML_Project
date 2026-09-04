@@ -82,12 +82,24 @@
 #include "avp_decode_module.h"
 #include "avp_test.h"
 
+/* FCW/TTC core（repository rootの codeC を単一の正本として参照する） */
+#include "main_pre.h"
+
 #ifndef x86_64
 #define AVP_ENABLE_PIPELINE_FLOW
 #endif
 
 #define AVP_BUFFER_Q_DEPTH   (2)
 #define AVP_PIPELINE_DEPTH   (6)
+
+/*
+ * FCW用の暫定値。チームの正式thresholdとして確定したものではない。
+ * TIDL OD outputのbboxは normalized {ymin, xmin, ymax, xmax} を暫定contractとする。
+ * この座標形式はJ721E実機で未確認である。
+ */
+#define FCW_FRONT_CHANNEL      (0u)
+#define FCW_VIDEO_FPS          (25)
+#define FCW_VEHICLE_CLASS_ID   (3)
 
 typedef struct {
 
@@ -159,6 +171,14 @@ typedef struct {
     int32_t enqueueCnt;
     int32_t dequeueCnt;
 
+    /* ---- FCW/TTC ---- */
+    FcwMainPreContext fcw;
+    vx_bool  fcw_initialized;
+    /* OD outputをgraph parameter化できたときだけvx_true_e */
+    vx_bool  fcw_od_param_enabled;
+    /* Scaler入力bufferごとに、そのbufferへ書き込んだframe IDを保持する */
+    vx_int32 fcw_frame_id_by_buf[AVP_BUFFER_Q_DEPTH];
+
 } AppObj;
 
 AppObj gAppObj;
@@ -195,6 +215,11 @@ static void app_draw_graphics(Draw2D_Handle *handle, Draw2D_BufInfo *draw2dBufIn
 #endif
 #ifdef AVP_ENABLE_PIPELINE_FLOW
 static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 frame_id);
+static void app_fcw_alarm_output(vx_bool active, void *user_data);
+static vx_status app_fcw_init(AppObj *obj);
+static void app_fcw_deinit(AppObj *obj);
+static vx_status app_fcw_process_completed_frame(AppObj *obj, vx_object_array od_output_arr, vx_int32 frame_id);
+static void app_find_tensor_index(vx_tensor tensors[], vx_reference ref, vx_int32 array_size, vx_int32 *array_idx);
 #else
 static vx_status app_run_graph_for_one_frame_sequential(AppObj *obj, vx_int32 frame_id);
 #endif
@@ -964,6 +989,142 @@ static vx_status fill_background_image(vx_image background)
     return (status);
 }
 
+/* ============================================================
+ * FCW / TTC
+ *
+ * 接続位置は OD TIDL output → OD post-processing の後段であり、
+ * A72/Linux側のstateful moduleとして vxGraphParameterDequeueDoneRef() で
+ * 完了が確定したOD output tensorだけを処理する。
+ * odTIDLObj.output1_tensor_arr を「最新結果」として直接読むことはしない。
+ * ============================================================ */
+
+static void app_fcw_alarm_output(vx_bool active, void *user_data)
+{
+    (void)user_data;
+    printf("[FCW] ALARM_%s\n", (active == vx_true_e) ? "ON" : "OFF");
+}
+
+static vx_status app_fcw_init(AppObj *obj)
+{
+    vx_status status;
+    FcwMainPreConfig fcw_config;
+    vx_int32 i;
+
+    /*
+     * fcw_od_param_enabled は app_init_tidl_od_output_bufq() の結果として
+     * 既に設定されているため、ここでは触らない。
+     */
+    obj->fcw_initialized = vx_false_e;
+
+    for(i = 0; i < AVP_BUFFER_Q_DEPTH; i++)
+    {
+        obj->fcw_frame_id_by_buf[i] = -1;
+    }
+
+    if(obj->enable_vd != 1)
+    {
+        return VX_SUCCESS;
+    }
+
+    /* 以下はいずれも暫定値であり、正式thresholdではない */
+    fcw_main_pre_config_set_defaults(&fcw_config);
+    fcw_config.car_class_id = FCW_VEHICLE_CLASS_ID;
+    fcw_config.fps          = FCW_VIDEO_FPS;
+    fcw_config.ttc_channel  = FCW_FRONT_CHANNEL;
+
+    status = fcw_main_pre_init(&obj->fcw, &fcw_config, app_fcw_alarm_output, NULL);
+    if(status != VX_SUCCESS)
+    {
+        printf("[FCW] Initialization failed.\n");
+        return status;
+    }
+
+    obj->fcw_initialized = vx_true_e;
+    printf("[FCW] Initialized. class_id=%d fps=%d channel=%u (provisional values)\n",
+           fcw_config.car_class_id, fcw_config.fps, fcw_config.ttc_channel);
+
+    return VX_SUCCESS;
+}
+
+static void app_fcw_deinit(AppObj *obj)
+{
+    if(obj->fcw_initialized == vx_true_e)
+    {
+        fcw_main_pre_deinit(&obj->fcw);
+        obj->fcw_initialized = vx_false_e;
+    }
+    obj->fcw_od_param_enabled = vx_false_e;
+}
+
+/*
+ * 完了が確定したOD output tensorの1フレーム分を処理する。
+ *
+ * od_output_arr は、dequeueで戻ってきたtensorが属するobject arrayである。
+ * frame_id は、同じgraph executionのScaler入力bufferに書き込んだframe IDである。
+ */
+static vx_status app_fcw_process_completed_frame(AppObj *obj,
+                                                 vx_object_array od_output_arr,
+                                                 vx_int32 frame_id)
+{
+    vx_status status;
+    const FcwFrameResult *result;
+    vx_uint32 i;
+
+    if((obj == NULL) || (od_output_arr == NULL))
+    {
+        return VX_ERROR_INVALID_PARAMETERS;
+    }
+
+    if((obj->fcw_initialized != vx_true_e) || (obj->enable_vd != 1))
+    {
+        return VX_SUCCESS;
+    }
+
+    status = fcw_main_pre_process_tidl_frame(&obj->fcw,
+                                             &obj->odPostProcObj.ioBufDesc,
+                                             od_output_arr,
+                                             NUM_CH,
+                                             frame_id);
+    if(status != VX_SUCCESS)
+    {
+        printf("[FCW] Processing failed. frame=%d\n", frame_id);
+        return status;
+    }
+
+    result = fcw_main_pre_get_frame_result(&obj->fcw);
+    if(result == NULL)
+    {
+        return VX_FAILURE;
+    }
+
+    printf("[FCW] frame=%d cars=%u alarm=%d\n",
+           frame_id, result->num_cars, (int)result->any_alert);
+
+    for(i = 0u; i < result->num_cars; i++)
+    {
+        const FcwCar *car = &result->cars[i];
+
+        if(car->roi_valid != vx_true_e)
+        {
+            continue;
+        }
+
+        if(car->ttc_valid == vx_true_e)
+        {
+            printf("[FCW]   track=%d hist=%u ttc=%.3f alert=%d\n",
+                   car->track_id, car->history_length,
+                   car->ttc_sec, (int)car->alert);
+        }
+        else
+        {
+            printf("[FCW]   track=%d hist=%u ttc=n/a alert=%d\n",
+                   car->track_id, car->history_length, (int)car->alert);
+        }
+    }
+
+    return VX_SUCCESS;
+}
+
 static vx_status app_init(AppObj *obj)
 {
     int status = VX_SUCCESS;
@@ -996,6 +1157,25 @@ static vx_status app_init(AppObj *obj)
         obj->odTIDLObj.core_id = 0;
         #endif
         status = app_init_tidl_od(obj->context, &obj->odTIDLObj, "od_tidl_obj");
+
+        /*
+         * FCW用にOD outputのbuffer queueを確保する。
+         * 失敗しても既存のVehicle Detection経路は成立するため、
+         * ここではstatusを落とさずFCWのgraph parameter化だけを諦める。
+         */
+        if(status == VX_SUCCESS)
+        {
+            if(app_init_tidl_od_output_bufq(obj->context, &obj->odTIDLObj,
+                                            AVP_BUFFER_Q_DEPTH) == VX_SUCCESS)
+            {
+                obj->fcw_od_param_enabled = vx_true_e;
+            }
+            else
+            {
+                printf("[FCW] OD output buffer queue unavailable. FCW is disabled.\n");
+                obj->fcw_od_param_enabled = vx_false_e;
+            }
+        }
     }
     if(status == VX_SUCCESS)
     {
@@ -1071,11 +1251,20 @@ static vx_status app_init(AppObj *obj)
     }
     #endif
 
+    if(status == VX_SUCCESS)
+    {
+        status = app_fcw_init(obj);
+    }
+
     return status;
 }
 
 static void app_deinit(AppObj *obj)
 {
+    app_fcw_deinit(obj);
+
+    app_deinit_tidl_od_output_bufq(&obj->odTIDLObj, AVP_BUFFER_Q_DEPTH);
+
     /* input_mode==0でもコンテキストがNULLなら何もしないので、常に呼ぶ */
     avp_decode_release(&obj->decode_context);
 
@@ -1151,7 +1340,10 @@ static vx_status app_create_graph(AppObj *obj)
 {
     vx_status status = VX_SUCCESS;
 #ifdef AVP_ENABLE_PIPELINE_FLOW
-    vx_int32 list_depth = ((obj->en_out_img_write == 1) || (obj->test_mode == 1)) ? 2 : 1;
+    /* Scaler入力 + (Mosaic出力) + (FCW用OD output) */
+    vx_int32 list_depth = 1
+                        + (((obj->en_out_img_write == 1) || (obj->test_mode == 1)) ? 1 : 0)
+                        + ((obj->fcw_od_param_enabled == vx_true_e) ? 1 : 0);
     vx_graph_parameter_queue_params_t graph_parameters_queue_params_list[list_depth];
     vx_int32 graph_parameter_index;
 #endif
@@ -1247,6 +1439,25 @@ static vx_status app_create_graph(AppObj *obj)
         graph_parameters_queue_params_list[graph_parameter_index].refs_list = (vx_reference*)&obj->imgMosaicObj.output_image[0];
         graph_parameter_index++;
     }
+    /*
+     * FCW用：OD TIDL outputをqueue付きgraph parameterにする。
+     *
+     * parameter index 7がoutput tensor 0であることは、
+     * avp_tidl_module.cのreplicate配列
+     *   {F,F,F,T,T,F,T,T}（サイズ = BASE(6) + input(1) + output(1)）
+     * から確定している。refs_listはScaler入力と同じくobject arrayのitem 0
+     * （vx_tensor）の配列を渡す。
+     */
+    if(obj->fcw_od_param_enabled == vx_true_e)
+    {
+        add_graph_parameter_by_node_index(obj->graph, obj->odTIDLObj.node, 7);
+        obj->odTIDLObj.output_graph_parameter_index = graph_parameter_index;
+        graph_parameters_queue_params_list[graph_parameter_index].graph_parameter_index = graph_parameter_index;
+        graph_parameters_queue_params_list[graph_parameter_index].refs_list_size = AVP_BUFFER_Q_DEPTH;
+        graph_parameters_queue_params_list[graph_parameter_index].refs_list = (vx_reference*)&obj->odTIDLObj.output1_tensors[0];
+        graph_parameter_index++;
+    }
+
     if(status == VX_SUCCESS)
     {
         status = vxSetGraphScheduleConfig(obj->graph,
@@ -1268,7 +1479,11 @@ static vx_status app_create_graph(AppObj *obj)
     }
     if((obj->enable_psd == 1) || (obj->enable_vd == 1))
     {
-        if(status == VX_SUCCESS)
+        /*
+         * OD outputをgraph parameterにした場合、bufferはrefs_list側で供給されるため
+         * 同じparameterへnumbufを設定しない。
+         */
+        if((status == VX_SUCCESS) && (obj->fcw_od_param_enabled != vx_true_e))
         {
             status = tivxSetNodeParameterNumBufByIndex(obj->odTIDLObj.node, 7, 4);
         }
@@ -1539,6 +1754,19 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
 
         APP_PRINTF("App Reading Input Done!\n");
 
+        /*
+         * FCW用のOD output bufferを、Scaler入力と同じ順序でenqueueする。
+         * 以後この2つは常に同じ回数だけenqueue／dequeueされるため、
+         * n回目のdequeue同士が同じgraph executionに対応する。
+         */
+        if((obj->fcw_od_param_enabled == vx_true_e) && (status == VX_SUCCESS))
+        {
+            status = vxGraphParameterEnqueueReadyRef(obj->graph, obj->odTIDLObj.output_graph_parameter_index, (vx_reference*)&obj->odTIDLObj.output1_tensors[obj->enqueueCnt], 1);
+        }
+
+        /* このbufferへ書き込んだframe IDを記録する */
+        obj->fcw_frame_id_by_buf[obj->enqueueCnt] = frame_id;
+
         /* Enqueue input - start execution */
         if(status == VX_SUCCESS)
         {
@@ -1555,10 +1783,29 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
         vx_image mosaic_output_image;
         uint32_t num_refs;
 
+        vx_tensor od_output_tensor = NULL;
+        vx_int32  od_output_idx    = -1;
+        vx_int32  completed_frame_id = -1;
+
         /* Dequeue input */
         if(status == VX_SUCCESS)
         {
             status = vxGraphParameterDequeueDoneRef(obj->graph, scalerObj->graph_parameter_index, (vx_reference*)&scaler_input_image, 1, &num_refs);
+        }
+
+        /*
+         * 同じ回で完了したOD output tensorを取り出す。
+         * Scaler入力と同数・同順でenqueueしているため、この2つは
+         * 同一のgraph executionに属する。
+         */
+        if((obj->fcw_od_param_enabled == vx_true_e) && (status == VX_SUCCESS))
+        {
+            status = vxGraphParameterDequeueDoneRef(obj->graph, obj->odTIDLObj.output_graph_parameter_index, (vx_reference*)&od_output_tensor, 1, &num_refs);
+
+            if(status == VX_SUCCESS)
+            {
+                app_find_tensor_index(obj->odTIDLObj.output1_tensors, (vx_reference)od_output_tensor, AVP_BUFFER_Q_DEPTH, &od_output_idx);
+            }
         }
         if(((obj->en_out_img_write == 1) || (obj->test_mode == 1)) && (status == VX_SUCCESS))
         {
@@ -1606,6 +1853,37 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
         {
             app_find_object_array_index(scalerObj->input.arr, (vx_reference)scaler_input_image, AVP_BUFFER_Q_DEPTH, &obj_array_idx);
         }
+
+        /*
+         * FCW処理。
+         * 完了したScaler入力bufferのindexから、その実行で処理されたframe IDを得る。
+         * OD output bufferは、まだ再enqueueしていない＝graphが上書きしない状態で読む。
+         */
+        if((obj->fcw_od_param_enabled == vx_true_e) && (status == VX_SUCCESS) &&
+           (obj_array_idx != -1) && (od_output_idx != -1))
+        {
+            vx_object_array od_output_arr;
+
+            completed_frame_id = obj->fcw_frame_id_by_buf[obj_array_idx];
+
+            /* index 0 は app_init_tidl_od() が確保した object array */
+            od_output_arr = (od_output_idx == 0)
+                          ? obj->odTIDLObj.output1_tensor_arr
+                          : obj->odTIDLObj.output1_tensor_arr_bufq[od_output_idx];
+
+            if((od_output_arr != NULL) && (completed_frame_id >= 0))
+            {
+                (void)app_fcw_process_completed_frame(obj, od_output_arr, completed_frame_id);
+            }
+        }
+
+        /* FCW処理が終わってから、OD output bufferをgraphへ返す */
+        if((obj->fcw_od_param_enabled == vx_true_e) && (status == VX_SUCCESS) &&
+           (od_output_tensor != NULL))
+        {
+            status = vxGraphParameterEnqueueReadyRef(obj->graph, obj->odTIDLObj.output_graph_parameter_index, (vx_reference*)&od_output_tensor, 1);
+        }
+
         if((obj_array_idx != -1) && (status == VX_SUCCESS))
         {
             if(obj->input_mode == 1)
@@ -1624,6 +1902,11 @@ static vx_status app_run_graph_for_one_frame_pipeline(AppObj *obj, vx_int32 fram
         APP_PRINTF("App Reading Input Done!\n");
 
     /* Enqueue input - start execution */
+        if((obj_array_idx != -1) && (status == VX_SUCCESS))
+        {
+            /* 今回このbufferへ書き込んだframe IDを記録し直す */
+            obj->fcw_frame_id_by_buf[obj_array_idx] = frame_id;
+        }
         if (status == VX_SUCCESS)
         {
             status = vxGraphParameterEnqueueReadyRef(obj->graph, scalerObj->graph_parameter_index, (vx_reference*)&scaler_input_image, 1);
@@ -1720,6 +2003,11 @@ static vx_status app_run_graph(AppObj *obj)
     }
 
 #ifdef AVP_ENABLE_PIPELINE_FLOW
+    /*
+     * EOSまたは異常終了でloopを抜けた時点で、enqueue済みだがdequeueしていない
+     * graph executionが残る。AVP_BUFFER_Q_DEPTHが2なので最大1件である。
+     * その1件分のFCW処理は行われない。vxWaitGraph()でgraphの完了だけを待つ。
+     */
     vxWaitGraph(obj->graph);
 #endif
 
@@ -1970,6 +2258,9 @@ static void app_default_param_set(AppObj *obj)
     /* 既定は従来の連番YUV入力 */
     obj->input_mode     = 0;
     obj->decode_context = NULL;
+
+    obj->fcw_initialized      = vx_false_e;
+    obj->fcw_od_param_enabled = vx_false_e;
     vx_int32 i;
 
     for(i=0; i < TIVX_PIXEL_VIZ_MAX_CLASS; i++)
@@ -2000,6 +2291,26 @@ static void app_update_param_set(AppObj *obj)
 }
 
 #ifdef AVP_ENABLE_PIPELINE_FLOW
+/*
+ * dequeueで戻ったOD output tensorが、どのbuffer indexのものかを求める。
+ * Scaler入力に対する app_find_object_array_index() と同じ考え方である。
+ */
+static void app_find_tensor_index(vx_tensor tensors[], vx_reference ref, vx_int32 array_size, vx_int32 *array_idx)
+{
+    vx_int32 i;
+
+    *array_idx = -1;
+
+    for(i = 0; i < array_size; i++)
+    {
+        if((vx_reference)tensors[i] == ref)
+        {
+            *array_idx = i;
+            break;
+        }
+    }
+}
+
 static void app_find_object_array_index(vx_object_array object_array[], vx_reference ref, vx_int32 array_size, vx_int32 *array_idx)
 {
     vx_int32 i;

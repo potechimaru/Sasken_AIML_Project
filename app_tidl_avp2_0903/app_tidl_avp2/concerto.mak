@@ -5,6 +5,20 @@ include $(PRELUDE)
 TARGET      := vx_app_tidl_avp2
 CSOURCES    := main.c avp_decode_module.c avp_scaler_module.c avp_pre_proc_module.c avp_tidl_module.c avp_post_proc_module.c fisheye_angle_table.c avp_img_mosaic_module.c avp_draw_detections_module.c avp_display_module.c
 
+# FCW/TTC core。sourceは複製せず、単一の正本を相対pathで参照する。
+# このpathはSDK内の配置基準であり、app が vision_apps/apps/dl_demos/app_tidl_avp2/
+# に置かれる場合、../../codeC は vision_apps/apps/codeC を指す。
+CSOURCES    += ../../codeC/main_pre.c
+CSOURCES    += ../../codeC/fcw_types.c
+CSOURCES    += ../../codeC/fcw_tidl_adapter.c
+CSOURCES    += ../../codeC/avp_fcw_roi.c
+CSOURCES    += ../../codeC/fcw_tracker.c
+CSOURCES    += ../../codeC/fcw_ttc.c
+CSOURCES    += ../../codeC/fcw_alert.c
+CSOURCES    += ../../codeC/fcw_alarm.c
+
+IDIRS       += ../../codeC
+
 ifeq ($(HOST_COMPILER),GCC_LINUX)
 CFLAGS += -Wno-unused-function
 endif
