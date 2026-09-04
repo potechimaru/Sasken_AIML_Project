@@ -17,10 +17,7 @@ CSOURCES    += ../../codeC/fcw_ttc.c
 CSOURCES    += ../../codeC/fcw_alert.c
 CSOURCES    += ../../codeC/fcw_alarm.c
 
-# concertoはIDIRSの相対pathを解決できない（compilerのCWDがvision_apps/のため）。
-# CSOURCESはmodule dir基準で展開されるが、IDIRSは絶対pathで指定する必要がある。
-IDIRS       += $(VISION_APPS_PATH)/apps/codeC
-IDIRS       += $(VISION_APPS_PATH)/apps/dl_demos/app_tidl_avp2
+IDIRS       += ../../codeC
 
 ifeq ($(HOST_COMPILER),GCC_LINUX)
 CFLAGS += -Wno-unused-function
