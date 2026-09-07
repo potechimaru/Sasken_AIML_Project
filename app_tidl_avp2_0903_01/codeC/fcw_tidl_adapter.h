@@ -3,6 +3,7 @@
 
 #include "fcw_types.h"
 #include "itidl_ti.h"
+#include <TI/tivx_tensor.h>
 
 
 /*

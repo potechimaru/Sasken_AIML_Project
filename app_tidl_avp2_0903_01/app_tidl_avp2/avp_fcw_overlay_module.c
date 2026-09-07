@@ -1,5 +1,5 @@
 #include "avp_fcw_overlay_module.h"
-#include "avp_fcw_roi.h"
+#include "/home/mmauser/user/new_sdk/RTOS/ti-processor-sdk-rtos-j721e-evm-11_02_01_03/vision_apps/apps/codeC/avp_fcw_roi.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -27,6 +27,12 @@
             return fcw_status_;                    \
         }                                          \
     } while (0)
+
+static void fcw_overlay_draw_roi(
+    void *base,
+    const vx_imagepatch_addressing_t *addr,
+    vx_uint32 plane,
+    const FcwOverlayConfig *config);
 
 typedef struct
 {
