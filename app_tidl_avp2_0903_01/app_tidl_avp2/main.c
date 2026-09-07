@@ -1556,7 +1556,9 @@ static vx_status app_create_graph(AppObj *obj)
         obj->graph,
         &obj->fcwOverlayObj,
         obj->odTIDLObj.output1_tensor_arr,
-        obj->vdDrawDetectionsObj.output_image_arr);
+        obj->vdDrawDetectionsObj.output_image_arr); 
+        //obj->scalerObj.output.arr[0]);comment out 1
+        
     }
 
 /* 作成失敗後に、未作成の出力をMosaicへ渡さない */

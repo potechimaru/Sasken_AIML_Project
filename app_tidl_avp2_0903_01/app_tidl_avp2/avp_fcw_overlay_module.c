@@ -6,7 +6,7 @@
 #include <string.h>
 
 /* 1にするとフレームごとの警報状態を出力する */
-#define FCW_OVERLAY_DEBUG (0)
+#define FCW_OVERLAY_DEBUG (1)
 /* ROIの色：黄色系のY,U,V */
 #define FCW_ROI_DRAW_Y (210u)
 #define FCW_ROI_DRAW_U (16u)
@@ -27,7 +27,7 @@
             return fcw_status_;                    \
         }                                          \
     } while (0)
-
+    
 static void fcw_overlay_draw_roi(
     void *base,
     const vx_imagepatch_addressing_t *addr,
@@ -270,9 +270,15 @@ static vx_status fcw_overlay_copy_and_draw(
         vx_status unmap_status;
 
         /*
-         * UV面も、画像全体の座標で矩形を指定する。
-         * planeによる間引きはaddressing構造体に反映される。
+         * planeが確定した後でrectを設定する
          */
+        rect.start_x = 0u;
+        rect.start_y = 0u;
+        rect.end_x = config->width;
+        rect.end_y =
+            (plane == 0u)
+            ? config->height
+            : (config->height / 2u);
         status = vxMapImagePatch(
             input,
             &rect,
@@ -283,12 +289,10 @@ static vx_status fcw_overlay_copy_and_draw(
             VX_READ_ONLY,
             VX_MEMORY_TYPE_HOST,
             VX_NOGAP_X);
-
         if (status != VX_SUCCESS)
         {
             return status;
         }
-
         status = vxMapImagePatch(
             output,
             &rect,
@@ -299,46 +303,40 @@ static vx_status fcw_overlay_copy_and_draw(
             VX_WRITE_ONLY,
             VX_MEMORY_TYPE_HOST,
             VX_NOGAP_X);
-
         if (status != VX_SUCCESS)
         {
             (void)vxUnmapImagePatch(input, input_map);
             return status;
         }
-
-        /*
-         * 画像のpaddingやstrideを決め打ちせず、
-         * OpenVXのアドレス変換関数でアクセスする。
-         */
-        for (y = 0u; y < config->height; y += step)
+        vx_uint32 map_height =
+            (plane == 0u)
+            ? config->height
+            : (config->height / 2u);
+        for (y = 0u; y < map_height; y++)
         {
             for (x = 0u; x < config->width; x += step)
             {
                 void *src = vxFormatImagePatchAddress2d(
                     input_base, x, y, &input_addr);
-
                 void *dst = vxFormatImagePatchAddress2d(
                     output_base, x, y, &output_addr);
-
                 memcpy(dst, src, pixel_bytes);
             }
         }
-
-        /* 検出台数やalert状態に関係なく、毎フレームROIを表示する */
+        /*
+         * コピー後にROIを描画する
+         */
         fcw_overlay_draw_roi(
             output_base,
             &output_addr,
             plane,
-            config
-        );
-
+            config);
+        /*
+         * alert中の車両だけ赤枠を描画する
+         */
         for (i = 0u; i < result->num_cars; i++)
         {
             const FcwCar *car = &result->cars[i];
-
-            /*
-             * any_alertではなく、車両ごとのalertを使用する。
-             */
             if ((car->alert == vx_true_e) &&
                 (car->roi_valid == vx_true_e) &&
                 (car->channel == config->fcw_config.ttc_channel) &&
@@ -352,25 +350,21 @@ static vx_status fcw_overlay_copy_and_draw(
                     config);
             }
         }
-
         unmap_status = vxUnmapImagePatch(output, output_map);
         if (status == VX_SUCCESS)
         {
             status = unmap_status;
         }
-
         unmap_status = vxUnmapImagePatch(input, input_map);
         if (status == VX_SUCCESS)
         {
             status = unmap_status;
         }
-
         if (status != VX_SUCCESS)
         {
             return status;
         }
     }
-
     return VX_SUCCESS;
 }
 
@@ -565,6 +559,8 @@ static vx_status VX_CALLBACK fcw_overlay_process(
     const vx_reference parameters[],
     vx_uint32 num)
 {
+printf("[FCW-ENTER]=====================================================================\n"); // log add
+fflush(stdout); // log add
     FcwOverlayState *state = NULL;
     FcwDetection detections[FCW_MAX_DETECTIONS];
 
@@ -643,6 +639,7 @@ static vx_status VX_CALLBACK fcw_overlay_process(
     for (i = 0u; i < result->num_cars; i++)
     {
         const FcwCar *car = &result->cars[i];
+        printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
         printf("[FCW] track=%d alert=%d ttc_valid=%d ttc=%.3f\n",
                car->track_id,

@@ -2,7 +2,7 @@
 #define AVP_FCW_OVERLAY_MODULE_H_
 
 #include "avp_common.h"
-#include "/home/mmauser/user/new_sdk/RTOS/ti-processor-sdk-rtos-j721e-evm-11_02_01_03/vision_apps/apps/codeC/main_pre.h"
+#include "../../codeC/main_pre.h"
 
 /* OpenVXノードの引数番号 */
 enum
