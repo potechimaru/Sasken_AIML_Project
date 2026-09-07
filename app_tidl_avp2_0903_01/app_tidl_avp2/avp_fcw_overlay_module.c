@@ -1,4 +1,5 @@
 #include "avp_fcw_overlay_module.h"
+#include "avp_fcw_roi.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -6,6 +7,16 @@
 
 /* 1にするとフレームごとの警報状態を出力する */
 #define FCW_OVERLAY_DEBUG (0)
+/* ROIの色：黄色系のY,U,V */
+#define FCW_ROI_DRAW_Y (210u)
+#define FCW_ROI_DRAW_U (16u)
+#define FCW_ROI_DRAW_V (146u)
+
+/*
+ * 1：各点を3×3画素のペンで描く
+ * 2：各点を5×5画素のペンで描く
+ */
+#define FCW_ROI_DRAW_RADIUS (1)
 
 #define FCW_RETURN_IF_ERROR(expr)                   \
     do                                             \
@@ -306,6 +317,14 @@ static vx_status fcw_overlay_copy_and_draw(
                 memcpy(dst, src, pixel_bytes);
             }
         }
+
+        /* 検出台数やalert状態に関係なく、毎フレームROIを表示する */
+        fcw_overlay_draw_roi(
+            output_base,
+            &output_addr,
+            plane,
+            config
+        );
 
         for (i = 0u; i < result->num_cars; i++)
         {
@@ -953,4 +972,177 @@ void app_deinit_fcw_overlay(FcwOverlayObj *obj)
 
     obj->buffer_depth = 0u;
     obj->frame_graph_parameter_index = -1;
+}
+
+
+/* 画像上の2点を結ぶ線を描く */
+static void fcw_overlay_draw_roi_line(
+    void *base,
+    const vx_imagepatch_addressing_t *addr,
+    vx_uint32 plane,
+    vx_uint32 width,
+    vx_uint32 height,
+    vx_int32 x0,
+    vx_int32 y0,
+    vx_int32 x1,
+    vx_int32 y1)
+{
+    vx_int32 dx = (x1 >= x0) ? (x1 - x0) : (x0 - x1);
+    vx_int32 dy = -((y1 >= y0) ? (y1 - y0) : (y0 - y1));
+
+    vx_int32 sx = (x0 < x1) ? 1 : -1;
+    vx_int32 sy = (y0 < y1) ? 1 : -1;
+
+    vx_int32 error = dx + dy;
+
+    for (;;)
+    {
+        vx_int32 offset_x;
+        vx_int32 offset_y;
+        vx_int32 twice_error;
+
+        /* 線の太さを付ける */
+        for (offset_y = -FCW_ROI_DRAW_RADIUS;
+             offset_y <= FCW_ROI_DRAW_RADIUS;
+             offset_y++)
+        {
+            for (offset_x = -FCW_ROI_DRAW_RADIUS;
+                 offset_x <= FCW_ROI_DRAW_RADIUS;
+                 offset_x++)
+            {
+                vx_int32 px = x0 + offset_x;
+                vx_int32 py = y0 + offset_y;
+
+                vx_uint32 image_x;
+                vx_uint32 image_y;
+                vx_uint8 *pixel;
+
+                /* 画像外へ書き込まない */
+                if ((px < 0) || (py < 0) ||
+                    ((vx_uint32)px >= width) ||
+                    ((vx_uint32)py >= height))
+                {
+                    continue;
+                }
+
+                image_x = (vx_uint32)px;
+                image_y = (vx_uint32)py;
+
+                if (plane == 0u)
+                {
+                    pixel = (vx_uint8 *)vxFormatImagePatchAddress2d(
+                        base, image_x, image_y, addr);
+
+                    pixel[0] = FCW_ROI_DRAW_Y;
+                }
+                else
+                {
+                    /*
+                     * NV12のUVは2×2画素で共有される。
+                     * 偶数座標へ合わせてU,Vを書き込む。
+                     */
+                    image_x &= ~1u;
+                    image_y &= ~1u;
+
+                    pixel = (vx_uint8 *)vxFormatImagePatchAddress2d(
+                        base, image_x, image_y, addr);
+
+                    pixel[0] = FCW_ROI_DRAW_U;
+                    pixel[1] = FCW_ROI_DRAW_V;
+                }
+            }
+        }
+
+        if ((x0 == x1) && (y0 == y1))
+        {
+            break;
+        }
+
+        /* Bresenham法で次の描画位置を求める */
+        twice_error = 2 * error;
+
+        if (twice_error >= dy)
+        {
+            error += dy;
+            x0 += sx;
+        }
+
+        if (twice_error <= dx)
+        {
+            error += dx;
+            y0 += sy;
+        }
+    }
+}
+
+
+/* ROIの4辺を描く */
+static void fcw_overlay_draw_roi(
+    void *base,
+    const vx_imagepatch_addressing_t *addr,
+    vx_uint32 plane,
+    const FcwOverlayConfig *config)
+{
+    const vx_float32 vertices[4][2] =
+    {
+        {FCW_ROI_TOP_LEFT_X,     FCW_ROI_TOP_Y},
+        {FCW_ROI_TOP_RIGHT_X,    FCW_ROI_TOP_Y},
+        {FCW_ROI_BOTTOM_RIGHT_X, FCW_ROI_BOTTOM_Y},
+        {FCW_ROI_BOTTOM_LEFT_X,  FCW_ROI_BOTTOM_Y}
+    };
+
+    vx_int32 x[4];
+    vx_int32 y[4];
+    vx_uint32 i;
+
+    if ((config->width == 0u) || (config->height == 0u))
+    {
+        return;
+    }
+
+    for (i = 0u; i < 4u; i++)
+    {
+        vx_uint32 px;
+        vx_uint32 py;
+
+        /* 正規化座標を、現在の描画画像の座標に変換する */
+        px = (vx_uint32)floorf(
+            vertices[i][0] * (vx_float32)config->width);
+
+        py = (vx_uint32)floorf(
+            vertices[i][1] * (vx_float32)config->height);
+
+        /*
+         * 正規化座標1.0は画像の外側の境界になるため、
+         * 最後の画素へ収める。
+         */
+        if (px >= config->width)
+        {
+            px = config->width - 1u;
+        }
+
+        if (py >= config->height)
+        {
+            py = config->height - 1u;
+        }
+
+        x[i] = (vx_int32)px;
+        y[i] = (vx_int32)py;
+    }
+
+    for (i = 0u; i < 4u; i++)
+    {
+        vx_uint32 next = (i + 1u) % 4u;
+
+        fcw_overlay_draw_roi_line(
+            base,
+            addr,
+            plane,
+            config->width,
+            config->height,
+            x[i],
+            y[i],
+            x[next],
+            y[next]);
+    }
 }
