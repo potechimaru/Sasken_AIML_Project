@@ -1,5 +1,6 @@
 #include "avp_fcw_roi.h"
 #include <stddef.h>
+#include <stdio.h>
 
 vx_bool fcw_roi_check_car(FcwCar *car)
 {
@@ -8,6 +9,8 @@ vx_bool fcw_roi_check_car(FcwCar *car)
     vx_float32 ratio;
     vx_float32 left;
     vx_float32 right;
+    
+    // printf("===========================ROI==============================");
 
     if (car == NULL)
     {

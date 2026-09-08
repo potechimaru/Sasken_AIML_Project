@@ -240,8 +240,38 @@ static vx_status fcw_overlay_copy_and_draw(
     const FcwFrameResult *result,
     const FcwOverlayConfig *config)
 {
+    //printf("[OVERLAY] copy_and_draw entered\n");
     vx_rectangle_t rect;
     vx_uint32 plane;
+    
+    vx_uint32 image_width = 0u;
+    vx_uint32 image_height = 0u;
+
+
+
+    vxQueryImage(
+        output,
+        VX_IMAGE_WIDTH,
+        &image_width,
+        sizeof(image_width));
+
+
+
+    vxQueryImage(
+        output,
+        VX_IMAGE_HEIGHT,
+        &image_height,
+        sizeof(image_height));
+
+
+
+    printf("[OVERLAY] image=%ux%u config=%ux%u\n",
+           image_width,
+           image_height,
+           config->width,
+           config->height);
+    fflush(stdout);
+ 
 
     rect.start_x = 0u;
     rect.start_y = 0u;
@@ -275,10 +305,8 @@ static vx_status fcw_overlay_copy_and_draw(
         rect.start_x = 0u;
         rect.start_y = 0u;
         rect.end_x = config->width;
-        rect.end_y =
-            (plane == 0u)
-            ? config->height
-            : (config->height / 2u);
+        rect.end_y = config->height; // hennkou101
+        
         status = vxMapImagePatch(
             input,
             &rect,
@@ -308,11 +336,16 @@ static vx_status fcw_overlay_copy_and_draw(
             (void)vxUnmapImagePatch(input, input_map);
             return status;
         }
-        vx_uint32 map_height =
-            (plane == 0u)
-            ? config->height
-            : (config->height / 2u);
-        for (y = 0u; y < map_height; y++)
+        
+        printf("[OVERLAY] plane=%u dim_x=%u dim_y=%u stride_x=%d stride_y=%d\n",
+               plane,
+               output_addr.dim_x,
+               output_addr.dim_y,
+               output_addr.stride_x,
+               output_addr.stride_y);
+        fflush(stdout);
+        
+        for (y = 0u; y < config->height; y += step)
         {
             for (x = 0u; x < config->width; x += step)
             {
@@ -323,14 +356,18 @@ static vx_status fcw_overlay_copy_and_draw(
                 memcpy(dst, src, pixel_bytes);
             }
         }
+        
+        printf("[OVERLAY] plane=%u after copy\n", plane);
+        fflush(stdout);
+        
         /*
          * コピー後にROIを描画する
          */
-        fcw_overlay_draw_roi(
-            output_base,
-            &output_addr,
-            plane,
-            config);
+		fcw_overlay_draw_roi(
+		    output_base,
+		    &output_addr,
+		    plane,
+		    config);
         /*
          * alert中の車両だけ赤枠を描画する
          */
@@ -348,8 +385,13 @@ static vx_status fcw_overlay_copy_and_draw(
                     plane,
                     &car->box,
                     config);
+                
             }
         }
+        
+        printf("[OVERLAY] plane=%u after copy\n", plane);
+        fflush(stdout);
+        
         unmap_status = vxUnmapImagePatch(output, output_map);
         if (status == VX_SUCCESS)
         {
@@ -559,7 +601,7 @@ static vx_status VX_CALLBACK fcw_overlay_process(
     const vx_reference parameters[],
     vx_uint32 num)
 {
-printf("[FCW-ENTER]=====================================================================\n"); // log add
+printf("[FCW-ENTER]===================================\n"); // log add
 fflush(stdout); // log add
     FcwOverlayState *state = NULL;
     FcwDetection detections[FCW_MAX_DETECTIONS];
@@ -635,11 +677,13 @@ fflush(stdout); // log add
 #if FCW_OVERLAY_DEBUG
     printf("[FCW] frame=%d cars=%u alarm=%d\n",
            frame_id, result->num_cars, (int)result->any_alert);
+           
+    printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n");
 
     for (i = 0u; i < result->num_cars; i++)
     {
         const FcwCar *car = &result->cars[i];
-        printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        
 
         printf("[FCW] track=%d alert=%d ttc_valid=%d ttc=%.3f\n",
                car->track_id,

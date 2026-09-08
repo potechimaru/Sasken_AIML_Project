@@ -9,12 +9,12 @@
 #define FCW_ROI_BOTTOM_Y       (1.00F)
 
 // #define FCW_ROI_TOP_LEFT_X     (0.45F)
-#define FCW_ROI_TOP_LEFT_X     (0.48F)
+#define FCW_ROI_TOP_LEFT_X     (0.45F)
 // #define FCW_ROI_TOP_RIGHT_X    (0.55F)
-#define FCW_ROI_TOP_RIGHT_X    (0.50F)
+#define FCW_ROI_TOP_RIGHT_X    (0.55F)
 
 // #define FCW_ROI_BOTTOM_LEFT_X  (0.33F)
-#define FCW_ROI_BOTTOM_LEFT_X  (0.45F)
+#define FCW_ROI_BOTTOM_LEFT_X  (0.30F)
 // #define FCW_ROI_BOTTOM_RIGHT_X (0.67F)
 #define FCW_ROI_BOTTOM_RIGHT_X (0.70F)
 
