@@ -865,6 +865,7 @@ vx_int32 app_tidl_avp_main(vx_int32 argc, vx_char* argv[])
 static void add_graph_parameter_by_node_index(vx_graph graph, vx_node node, vx_uint32 node_parameter_index)
 {
     vx_parameter parameter = vxGetParameterByIndex(node, node_parameter_index);
+
     vxAddParameterToGraph(graph, parameter);
     vxReleaseParameter(&parameter);
 }
@@ -1556,9 +1557,7 @@ static vx_status app_create_graph(AppObj *obj)
         obj->graph,
         &obj->fcwOverlayObj,
         obj->odTIDLObj.output1_tensor_arr,
-        obj->vdDrawDetectionsObj.output_image_arr); 
-        //obj->scalerObj.output.arr[0]);comment out 1
-        
+        obj->vdDrawDetectionsObj.output_image_arr);
     }
 
 /* 作成失敗後に、未作成の出力をMosaicへ渡さない */
