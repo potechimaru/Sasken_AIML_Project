@@ -126,11 +126,12 @@ Sasken_AIML_Project/
 ├─ app_tidl_avp2/                 # root側のAVP2ビルド対象
 ├─ app_multi_cam_codec/           # H.264デコード確認用コード
 ├─ code/                          # Python版FCWプロトタイプ
-├─ codeC/                         # C版FCWモジュールと単体テスト
+├─ codeC/                         # root側のC版FCWモジュールと単体テスト
 ├─ app_tidl_avp2_0903/            # 9月3日前後のスナップショット
-├─ app_tidl_avp2_0903_01/         # H.264/overlayを含む統合スナップショット
+├─ app_tidl_avp2_0910_new/        # 旧0903_01から名称変更した最新の統合スナップショット
+│  ├─ app_tidl_avp2/              # H.264/overlayを含むAVP2アプリ
+│  └─ codeC/                      # 統合版が参照するC版FCWモジュール
 ├─ app_tidl_avp2_0904/            # 過去スナップショットの構成
-├─ app_tidl_avp2_0908/            # 過去スナップショットの構成
 ├─ 0904_new/                      # 統合版の別スナップショット
 ├─ h264/                          # H.264入力動画
 ├─ model/                         # SSD/TIDLモデル関連ファイル
@@ -166,13 +167,13 @@ Sasken_AIML_Project/
 H.264デコードとFCW overlayまで含む統合版は、次のスナップショット側で確認できます。
 
 ```text
-app_tidl_avp2_0903_01/app_tidl_avp2/
+app_tidl_avp2_0910_new/app_tidl_avp2/
 0904_new/app_tidl_avp2/
 ```
 
 これらの`concerto.mak`には、`avp_decode_module.c`、`codeC`のFCWモジュール、`avp_fcw_overlay_module.c`が記載されています。
 
-`app_tidl_avp2_0903_01`と`0904_new`は、コピー時刻が新しく、内容もほぼ同じですが、一部の`main.c`、ROI、TTC、設定ファイルには差分があります。そのため、厳密にどちらが実行に使われた最新版かは、Ubuntu PC上でビルドしたソースのコミット履歴、実行ファイルの更新日時、SHA256で最終確認してください。
+`app_tidl_avp2_0910_new`は、以前の`app_tidl_avp2_0903_01`から名称変更したフォルダで、現在のH.264/overlay統合版として扱います。このフォルダには`app_tidl_avp2/`と、そのビルドから参照される`codeC/`が含まれています。`0904_new`は別の過去スナップショットとして残しています。一部の`main.c`、ROI、TTC、設定ファイルには差分があるため、実際にTIボードで使用した実行ファイルは、Ubuntu PC上のコミット履歴、更新日時、SHA256で最終確認してください。
 
 ### 10.3 実行ファイル
 
@@ -190,11 +191,11 @@ sha256sum /path/to/vx_app_tidl_avp2.out
 
 ### 10.4 過去版の扱い
 
-`app_tidl_avp2_0903`、`app_tidl_avp2_0903_01`、`app_tidl_avp2_0904`、`app_tidl_avp2_0908`、`0904_new`は、比較やデバッグのために残しているスナップショットです。通常の修正・ビルドでは、どのスナップショットを使用するかを決めたうえで、そのフォルダ内の`concerto.mak`と`main.c`をセットで扱ってください。
+`app_tidl_avp2_0903`、`app_tidl_avp2_0904`、`0904_new`は、比較やデバッグのために残している過去スナップショットです。`app_tidl_avp2_0908`は削除済みのため、現在の構成には含まれません。通常の修正・ビルドでは、最新の統合版である`app_tidl_avp2_0910_new`を使用し、`app_tidl_avp2_0910_new/app_tidl_avp2/concerto.mak`、`main.c`、同フォルダ内の`codeC/`をセットで扱ってください。
 
 ## 11. ビルド・実行の基本手順
 
-1. Ubuntu PCで、使用する`app_tidl_avp2/`と`codeC/`を決める。
+1. Ubuntu PCで、最新の統合版`app_tidl_avp2_0910_new/`を使用するか、root側の`app_tidl_avp2/`と`codeC/`を使用するかを決める。
 2. `concerto.mak`の`CSOURCES`に必要なソースが含まれていることを確認する。
 3. RTOS SDK BuilderでAVP2アプリケーションをビルドする。
 4. 生成された`vx_app_tidl_avp2.out`の更新日時とSHA256を確認する。
